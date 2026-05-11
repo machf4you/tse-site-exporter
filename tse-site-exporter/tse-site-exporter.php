@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TSE Site Exporter
- * Description: Adds a Tools page with a single button to export all public pages, posts, products and custom post types as a structured JSON file inside a downloadable ZIP archive.
- * Version:     1.0.0
+ * Description: Exports AI-ready structured website intelligence (SEO, content structure, internal/external links, media, CRO signals, schema, interpreted Elementor structure, page classification & hierarchy) as a downloadable ZIP of JSON files.
+ * Version:     2.0.0
  * Author:      TSE
  * License:     GPL-2.0-or-later
  * Text Domain: tse-site-exporter
@@ -12,11 +12,15 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'TSE_SITE_EXPORTER_VERSION', '1.0.0' );
+define( 'TSE_SITE_EXPORTER_VERSION', '2.0.0' );
 define( 'TSE_SITE_EXPORTER_NONCE',   'tse_site_exporter_export' );
+define( 'TSE_SITE_EXPORTER_PATH',    plugin_dir_path( __FILE__ ) );
+
+require_once TSE_SITE_EXPORTER_PATH . 'includes/exporter.php';
+require_once TSE_SITE_EXPORTER_PATH . 'includes/postprocess.php';
 
 /**
- * Register the admin page under Tools.
+ * Admin menu under Tools.
  */
 function tse_site_exporter_register_menu() {
     add_management_page(
@@ -30,7 +34,7 @@ function tse_site_exporter_register_menu() {
 add_action( 'admin_menu', 'tse_site_exporter_register_menu' );
 
 /**
- * Render the admin page UI.
+ * Admin page UI.
  */
 function tse_site_exporter_render_admin_page() {
     if ( ! current_user_can( 'manage_options' ) ) {
@@ -41,11 +45,54 @@ function tse_site_exporter_render_admin_page() {
     ?>
     <div class="wrap">
         <h1><?php echo esc_html__( 'TSE Site Exporter', 'tse-site-exporter' ); ?></h1>
-        <p><?php echo esc_html__( 'Export all public pages, posts, products and custom post types into a structured JSON file packaged as a ZIP.', 'tse-site-exporter' ); ?></p>
+        <p style="max-width:720px">
+            <?php echo esc_html__( 'Exports an AI-ready structured intelligence package of this WordPress site: core data, SEO meta (Yoast / Rank Math), content hierarchy, FAQs, internal/external links, media, CRO signals, schema, interpreted Elementor structure, page classification and site hierarchy. Output is a ZIP of JSON files.', 'tse-site-exporter' ); ?>
+        </p>
 
         <form method="post" action="<?php echo esc_url( $action_url ); ?>">
             <input type="hidden" name="action" value="tse_site_exporter_export" />
             <?php wp_nonce_field( TSE_SITE_EXPORTER_NONCE, 'tse_site_exporter_nonce' ); ?>
+
+            <table class="form-table" role="presentation">
+                <tbody>
+                    <tr>
+                        <th scope="row"><?php echo esc_html__( 'Mode', 'tse-site-exporter' ); ?></th>
+                        <td>
+                            <label>
+                                <input type="radio" name="tse_mode" value="quick" checked
+                                       data-testid="tse-mode-quick">
+                                <?php echo esc_html__( 'Quick (caps at 500 posts; safe for most sites)', 'tse-site-exporter' ); ?>
+                            </label><br>
+                            <label>
+                                <input type="radio" name="tse_mode" value="full"
+                                       data-testid="tse-mode-full">
+                                <?php echo esc_html__( 'Full (no cap; ensure your PHP memory/timeout can handle it)', 'tse-site-exporter' ); ?>
+                            </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php echo esc_html__( 'Options', 'tse-site-exporter' ); ?></th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="tse_live_fetch" value="1"
+                                       data-testid="tse-opt-live-fetch">
+                                <?php echo esc_html__( 'Also fetch the live rendered URL (improves schema/HTML accuracy; slower).', 'tse-site-exporter' ); ?>
+                            </label><br>
+                            <label>
+                                <input type="checkbox" name="tse_broken_check" value="1"
+                                       data-testid="tse-opt-broken-check">
+                                <?php echo esc_html__( 'Check internal links for broken targets (HEAD requests; slower).', 'tse-site-exporter' ); ?>
+                            </label><br>
+                            <label>
+                                <input type="checkbox" name="tse_include_slices" value="1" checked
+                                       data-testid="tse-opt-slices">
+                                <?php echo esc_html__( 'Include slice files (seo, internal-links, external-links, cro, schema, elementor, hierarchy, orphans).', 'tse-site-exporter' ); ?>
+                            </label>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
             <p>
                 <button type="submit"
                         class="button button-primary button-hero"
@@ -60,7 +107,7 @@ function tse_site_exporter_render_admin_page() {
 }
 
 /**
- * Handle the export action.
+ * Form handler.
  */
 function tse_site_exporter_handle_export() {
     if ( ! current_user_can( 'manage_options' ) ) {
@@ -70,17 +117,24 @@ function tse_site_exporter_handle_export() {
     check_admin_referer( TSE_SITE_EXPORTER_NONCE, 'tse_site_exporter_nonce' );
 
     if ( ! class_exists( 'ZipArchive' ) ) {
-        wp_die( esc_html__( 'PHP ZipArchive extension is not available on this server. Please enable the PHP zip extension.', 'tse-site-exporter' ) );
+        wp_die( esc_html__( 'PHP ZipArchive extension is not available. Please enable the PHP zip extension.', 'tse-site-exporter' ) );
+    }
+    if ( ! class_exists( 'DOMDocument' ) ) {
+        wp_die( esc_html__( 'PHP DOM extension is not available. Please enable the PHP dom extension.', 'tse-site-exporter' ) );
     }
 
     @set_time_limit( 0 );
+    @ini_set( 'memory_limit', '512M' );
 
-    $data = tse_site_exporter_collect_data();
+    $opts = array(
+        'mode'           => isset( $_POST['tse_mode'] ) && $_POST['tse_mode'] === 'full' ? 'full' : 'quick',
+        'live_fetch'     => ! empty( $_POST['tse_live_fetch'] ),
+        'broken_check'   => ! empty( $_POST['tse_broken_check'] ),
+        'include_slices' => ! empty( $_POST['tse_include_slices'] ),
+        'quick_cap'      => 500,
+    );
 
-    $json = wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
-    if ( false === $json ) {
-        wp_die( esc_html__( 'Failed to encode export data as JSON.', 'tse-site-exporter' ) );
-    }
+    $bundle = tse_exporter_run( $opts );
 
     $upload_dir = wp_upload_dir();
     $tmp_dir    = trailingslashit( $upload_dir['basedir'] ) . 'tse-site-exporter';
@@ -93,21 +147,22 @@ function tse_site_exporter_handle_export() {
     if ( empty( $site_slug ) ) {
         $site_slug = 'site';
     }
-
     $base_name = 'tse-site-export-' . $site_slug . '-' . $timestamp;
     $zip_path  = trailingslashit( $tmp_dir ) . $base_name . '.zip';
-    $json_name = $base_name . '.json';
 
     $zip = new ZipArchive();
     if ( true !== $zip->open( $zip_path, ZipArchive::CREATE | ZipArchive::OVERWRITE ) ) {
         wp_die( esc_html__( 'Could not create ZIP archive.', 'tse-site-exporter' ) );
     }
-    $zip->addFromString( $json_name, $json );
-    $zip->close();
 
-    if ( ! file_exists( $zip_path ) ) {
-        wp_die( esc_html__( 'ZIP archive was not generated.', 'tse-site-exporter' ) );
+    foreach ( $bundle as $filename => $payload ) {
+        $json = wp_json_encode( $payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+        if ( false === $json ) {
+            continue;
+        }
+        $zip->addFromString( $filename, $json );
     }
+    $zip->close();
 
     while ( ob_get_level() ) {
         ob_end_clean();
@@ -118,161 +173,8 @@ function tse_site_exporter_handle_export() {
     header( 'Content-Disposition: attachment; filename="' . $base_name . '.zip"' );
     header( 'Content-Length: ' . filesize( $zip_path ) );
     header( 'X-Content-Type-Options: nosniff' );
-
     readfile( $zip_path );
-
     @unlink( $zip_path );
     exit;
 }
 add_action( 'admin_post_tse_site_exporter_export', 'tse_site_exporter_handle_export' );
-
-/**
- * Collect all exportable site data.
- *
- * @return array
- */
-function tse_site_exporter_collect_data() {
-    $post_types = tse_site_exporter_get_target_post_types();
-
-    $export = array(
-        'meta' => array(
-            'plugin'         => 'TSE Site Exporter',
-            'plugin_version' => TSE_SITE_EXPORTER_VERSION,
-            'site_url'       => home_url(),
-            'site_name'      => get_bloginfo( 'name' ),
-            'wp_version'     => get_bloginfo( 'version' ),
-            'exported_at'    => gmdate( 'c' ),
-            'post_types'     => array_values( $post_types ),
-            'status_filter'  => 'publish',
-        ),
-        'content' => array(),
-    );
-
-    foreach ( $post_types as $post_type ) {
-        $export['content'][ $post_type ] = tse_site_exporter_collect_post_type( $post_type );
-    }
-
-    return $export;
-}
-
-/**
- * Determine which post types to export: public posts, pages, products and any other public CPT.
- *
- * @return array
- */
-function tse_site_exporter_get_target_post_types() {
-    $public_types = get_post_types( array( 'public' => true ), 'names' );
-
-    // Drop attachments (media): they are not user-authored content posts.
-    unset( $public_types['attachment'] );
-
-    return array_values( $public_types );
-}
-
-/**
- * Collect posts of a given post type with full structured data.
- *
- * @param string $post_type
- * @return array
- */
-function tse_site_exporter_collect_post_type( $post_type ) {
-    $items   = array();
-    $page    = 1;
-    $per_page = 200;
-
-    do {
-        $query = new WP_Query( array(
-            'post_type'              => $post_type,
-            'post_status'            => 'publish',
-            'posts_per_page'         => $per_page,
-            'paged'                  => $page,
-            'orderby'                => 'ID',
-            'order'                  => 'ASC',
-            'no_found_rows'          => false,
-            'ignore_sticky_posts'    => true,
-            'update_post_term_cache' => true,
-            'update_post_meta_cache' => true,
-            'suppress_filters'       => true,
-        ) );
-
-        if ( ! $query->have_posts() ) {
-            break;
-        }
-
-        foreach ( $query->posts as $post ) {
-            $items[] = tse_site_exporter_format_post( $post );
-        }
-
-        $max_pages = (int) $query->max_num_pages;
-        wp_reset_postdata();
-        $page++;
-    } while ( $page <= $max_pages );
-
-    return $items;
-}
-
-/**
- * Build the structured array representation of a post.
- *
- * @param WP_Post $post
- * @return array
- */
-function tse_site_exporter_format_post( $post ) {
-    $author = get_userdata( $post->post_author );
-
-    $thumb_id  = get_post_thumbnail_id( $post->ID );
-    $thumb_url = $thumb_id ? wp_get_attachment_url( $thumb_id ) : null;
-
-    $taxonomies = array();
-    $tax_names  = get_object_taxonomies( $post->post_type, 'names' );
-    foreach ( $tax_names as $tax ) {
-        $terms = wp_get_post_terms( $post->ID, $tax );
-        if ( is_wp_error( $terms ) || empty( $terms ) ) {
-            continue;
-        }
-        $taxonomies[ $tax ] = array_map( function ( $term ) {
-            return array(
-                'term_id' => (int) $term->term_id,
-                'name'    => $term->name,
-                'slug'    => $term->slug,
-                'parent'  => (int) $term->parent,
-            );
-        }, $terms );
-    }
-
-    $raw_meta = get_post_meta( $post->ID );
-    $meta     = array();
-    foreach ( $raw_meta as $key => $values ) {
-        // Skip protected/internal meta keys (those starting with _) except common useful ones.
-        if ( '_' === substr( $key, 0, 1 ) && ! in_array( $key, array( '_thumbnail_id', '_wp_page_template' ), true ) ) {
-            continue;
-        }
-        $unserialized = array_map( 'maybe_unserialize', $values );
-        $meta[ $key ] = count( $unserialized ) === 1 ? $unserialized[0] : $unserialized;
-    }
-
-    return array(
-        'id'             => (int) $post->ID,
-        'post_type'      => $post->post_type,
-        'slug'           => $post->post_name,
-        'title'          => get_the_title( $post ),
-        'status'         => $post->post_status,
-        'permalink'      => get_permalink( $post ),
-        'date_gmt'       => $post->post_date_gmt,
-        'modified_gmt'   => $post->post_modified_gmt,
-        'menu_order'     => (int) $post->menu_order,
-        'parent'         => (int) $post->post_parent,
-        'comment_status' => $post->comment_status,
-        'ping_status'    => $post->ping_status,
-        'author'         => $author ? array(
-            'id'           => (int) $author->ID,
-            'login'        => $author->user_login,
-            'display_name' => $author->display_name,
-        ) : null,
-        'excerpt'        => $post->post_excerpt,
-        'content'        => $post->post_content,
-        'featured_image' => $thumb_url,
-        'taxonomies'     => $taxonomies,
-        'meta'           => $meta,
-    );
-}

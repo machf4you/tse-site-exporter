@@ -1,51 +1,84 @@
 # PRD — TSE Site Exporter (WordPress Plugin)
 
 ## Original Problem Statement
-Build a WordPress plugin called "TSE Site Exporter".
-- Adds an admin page under Tools with one button: "Export Site Data".
-- On click, exports all public pages, posts, products and custom post types into a structured JSON file, compresses it into a ZIP, and lets the ZIP be downloaded.
-- Focus only on clean data extraction. No dashboard, no charts, no AI features, no frontend output.
+V1: Tools page with one button "Export Site Data" that exports all public pages, posts, products and CPTs into a structured JSON file, compressed as ZIP.
 
-## Architecture
-- Single PHP plugin file (`tse-site-exporter.php`) + `README.md`.
-- Hooks:
-  - `admin_menu` → adds Tools → TSE Site Exporter page.
-  - `admin_post_tse_site_exporter_export` → form handler that builds JSON, packages with `ZipArchive`, streams ZIP as download.
-- Capability gate: `manage_options`.
-- Nonce-protected form (`tse_site_exporter_export`).
+V2: Upgrade from raw content export → AI-ready structured website intelligence export.
+- Core page data, SEO (Yoast / Rank Math), content structure (H1/H2/H3 hierarchy, FAQs, plain text, shortcodes-removed, elementor-clean-text, word count).
+- Internal linking with source/target post type + target classification + anchor-text frequency.
+- External links with rel.
+- Media (featured + inline images, ALT, filenames).
+- CRO detection (CTAs, phones, emails, forms, trust signals, testimonials, FAQ sections).
+- Elementor structured interpretation (no raw dump).
+- Schema (JSON-LD) extraction.
+- Site hierarchy file (homepage → money → support → articles).
+- Optional slice files, optional live-URL fetch, optional broken-link check.
+
+## Architecture (V2)
+- `tse-site-exporter.php` — bootstrap, admin menu (Tools → TSE Site Exporter), form UI with Mode + toggles, `admin_post_*` handler that runs the exporter and streams the ZIP.
+- `includes/exporter.php` — pure data extraction:
+  - Target post types (`public` minus `attachment`).
+  - Per-post `PageRecord` builder; renders content via `apply_filters('the_content', …)` once, DOM parses it.
+  - Headings (H1 + H2 list + H3 paired with parent H2 by document order).
+  - FAQs: FAQPage JSON-LD first, else heuristic H?/answer pairing.
+  - Internal/external link extractor with rel, anchor, is_self, absolute URL resolution.
+  - Inline + featured image extraction.
+  - JSON-LD `<script type=application/ld+json>` block extractor (handles `@graph` + arrays).
+  - SEO meta auto-detect Rank Math first, fall back to Yoast (title, desc, focus keywords, canonical, robots noindex, OG title/desc/image).
+  - CRO heuristics: anchor/button regex CTA detection, phone+email regex, form-plugin shortcode signatures + Elementor form widget + native `<form>`, trust-keyword list, testimonial/review markup heuristics, FAQ section detection.
+  - Elementor walker: recursive over `_elementor_data`, per-widget mapper for `heading / text-editor / button / image / icon-box / image-box / icon-list / toggle / accordion / form / shortcode / video / testimonial[-carousel]`, unknown widgets fall through to a string-harvester that produces a `text` summary; produces `widget_counts` and an overall `elementor_clean_text` string for AI ingestion.
+  - Classifier: `homepage` (front page) → `article` (post) → `money` (product, or commercial slug/title keywords) → `support` (about/faq/policy/etc.) → `other`.
+  - Internal link enrichment: every internal link gets `source_post_type`, `source_classification`, `target_post_type`, `target_classification`, `target_id`.
+  - Bundle assembly: `manifest.json`, `full-export.json`, plus optional slices (`seo-data`, `internal-links` w/ `anchor_text_frequency`, `external-links`, `cro-analysis`, `schema`, `elementor-structure`, `hierarchy`, `orphans`).
+- `includes/postprocess.php` — site-wide passes:
+  - Anchor-text frequency map (normalised lowercase, sorted desc).
+  - Orphan detection (zero incoming internal links, excluding self).
+  - Hierarchy file (homepage / money_pages / support_pages / articles / other) with counts + entries.
+  - Optional broken-link checker: HEAD with GET fallback, per-URL cached within a single run.
 
 ## User Personas
-- **Site Administrator**: needs a one-click structured export of all content for migration, backup, audit, or piping into another system.
+- **Site owner / agency** preparing a site for AI audit, internal-link analysis, CRO review, or replication/migration.
+- **AI pipeline operator** ingesting site intelligence into RAG / fine-tuning workflows.
 
 ## Core Requirements (static)
-1. Tools admin page with a single button.
-2. Export covers all public post types (posts, pages, products, public CPTs); excludes `attachment`.
-3. Only `publish` status.
-4. Each post: core fields + post meta + taxonomies + featured image URL.
-5. JSON wrapped in a ZIP, downloaded directly.
-6. No frontend output, no dashboards/charts/AI.
+1. Admin page under Tools with one primary button.
+2. Export ZIP of structured JSON files.
+3. Every published post/page/product/CPT becomes a canonical PageRecord.
+4. Only `publish` status; `attachment` excluded.
+5. Cross-referenced internal links + anchor frequency.
+6. Page classification + hierarchy file.
+7. Interpreted Elementor structure (never raw dump).
+8. Capability-gated (`manage_options`), nonce-protected.
 
 ## What's Implemented (2026-01)
-- Admin menu under Tools.
-- Single "Export Site Data" button (with `data-testid="tse-export-site-data-button"`).
-- Server-side handler: capability + nonce check, paginated `WP_Query` per public post type, filtered to `publish`.
-- Per-post payload: id, post_type, slug, title, status, permalink, dates, menu_order, parent, comment/ping status, author info, excerpt, content, featured_image URL, taxonomies (all terms grouped), meta (public meta, plus `_thumbnail_id` and `_wp_page_template`).
-- Top-level `meta` block: plugin info, site URL/name, WP version, export timestamp, list of post types, status filter.
-- ZIP creation via `ZipArchive` in uploads dir, streamed as `application/zip` download, then deleted.
-- README with install + usage + output schema.
+- V1: raw content export (Tools page, JSON-in-ZIP).
+- V2.0.0:
+  - Admin form with Mode (Quick ≤500 / Full) + toggles (live fetch, broken-link check, slice files).
+  - PageRecord with: id/url/slug/post_type/status/dates/parent/template/author/classification.
+  - SEO block (Rank Math + Yoast, focus keywords, canonical, robots, OG).
+  - Content block (H1, H2[], H3 with parent_h2, FAQs, word_count, plain_text, shortcodes_removed, elementor_clean_text).
+  - Links block (internal/external/counts + self detection + enriched target metadata).
+  - Media block (featured image record + de-duplicated inline images).
+  - CRO block (CTAs, phones, emails, forms, trust_signals, testimonials, faq_section).
+  - Elementor block (widget_counts + sections[] of interpreted widgets; unknown widget fallback).
+  - Schema blocks (raw JSON-LD entries with `@graph` flattening).
+  - Optional slice files including new `hierarchy.json` (counts + grouped entries) and `internal-links.json` with `anchor_text_frequency`.
+  - Validated via 33-check PHP smoke harness (URL normalisation, DOM extraction, classifier, full Elementor walker incl. unknown fallback, anchor normalisation).
 - Distributable: `/app/tse-site-exporter.zip`.
 
 ## Validation
-- `php -l` clean on `tse-site-exporter.php`.
-- Smoke test verified `ZipArchive` + JSON encode/decode round-trip.
-- (Note: Full end-to-end test requires a live WordPress instance; not part of this environment.)
+- `php -l` clean on all PHP files.
+- Pure-PHP smoke harness (no WP runtime needed): 33/33 passing.
+- Full WordPress end-to-end run requires a real WP install — user responsibility.
 
 ## Backlog / Future
-- P1: Chunked / background export via Action Scheduler for very large sites.
-- P1: Optional inclusion of media files (attachments) and users/comments.
-- P2: CSV / NDJSON output formats.
-- P2: Filter by date range or specific post types via UI.
+- P1: Background mode (Action Scheduler) for very large sites (>5k posts).
+- P1: Per-post-type include/exclude UI.
+- P2: NDJSON / CSV slice formats.
 - P2: WP-CLI command (`wp tse-export`).
+- P2: Cumulative export cache to avoid re-rendering unchanged posts.
+- P3: Multisite "export network" sweep.
 
 ## Next Action Items
-- User installs `/app/tse-site-exporter.zip` on a WordPress site and runs an export to verify against real content.
+- User installs `/app/tse-site-exporter.zip` on a real WordPress site and verifies output against expected content.
+- (Optional) Move broken-link / live-fetch heavy paths to background job in V2.1.
