@@ -118,15 +118,15 @@ function tse_exporter_build_record( $post, $front_id, $opts ) {
 
     // Parse Elementor first so its heading widgets / clean_text feed downstream extractors.
     $elementor_data   = get_post_meta( $post->ID, '_elementor_data', true );
-    $elementor_parsed = tse_parse_elementor( $elementor_data );
+    $elementor_parsed = tse_parse_elementor( $elementor_data, $post->post_title );
 
     $headings = tse_extract_headings( $dom, $elementor_parsed, $live_html );
     $faqs     = tse_extract_faqs( $dom, $html_for_schema );
     $links    = tse_extract_links( $dom, $permalink );
     $images   = tse_extract_images( $dom );
 
-    $plain_text         = tse_normalize_text( wp_strip_all_tags( $rendered ) );
-    $shortcodes_removed = tse_normalize_text( wp_strip_all_tags( strip_shortcodes( $post->post_content ) ) );
+    $plain_text         = tse_normalize_text( tse_html_to_text( $rendered ) );
+    $shortcodes_removed = tse_normalize_text( tse_html_to_text( strip_shortcodes( $post->post_content ) ) );
 
     // Elementor pages frequently have empty/placeholder post_content. When the
     // Elementor-derived clean text is substantially richer, use it as plain_text.
@@ -221,36 +221,22 @@ function tse_extract_headings( $dom, $elementor_parsed = null, $live_html = '' )
     $seen_h2  = array();
     $seen_h3  = array();
 
-    // (1) Headings from the rendered the_content DOM (document order).
-    tse_collect_headings_from_dom( $dom, $h1, $h2, $h3_pairs, $seen_h2, $seen_h3 );
+    $is_elementor = is_array( $elementor_parsed ) && ! empty( $elementor_parsed['is_elementor'] );
 
-    // (2) Headings from Elementor widgets, deduped against the same state.
-    if ( is_array( $elementor_parsed ) && ! empty( $elementor_parsed['headings'] ) ) {
-        $current_h2 = '';
-        foreach ( $elementor_parsed['headings'] as $h ) {
-            $text  = isset( $h['text'] )  ? trim( (string) $h['text'] )            : '';
-            $level = isset( $h['level'] ) ? strtolower( (string) $h['level'] )     : 'h2';
-            if ( '' === $text ) continue;
-            $k = strtolower( $text );
-            if ( 'h1' === $level ) {
-                if ( '' === $h1 ) $h1 = $text;
-            } elseif ( 'h2' === $level ) {
-                if ( ! isset( $seen_h2[ $k ] ) ) {
-                    $seen_h2[ $k ] = true;
-                    $h2[] = $text;
-                }
-                $current_h2 = $text;
-            } elseif ( 'h3' === $level ) {
-                $pk = $k . '||' . strtolower( $current_h2 );
-                if ( ! isset( $seen_h3[ $pk ] ) ) {
-                    $seen_h3[ $pk ] = true;
-                    $h3_pairs[] = array( 'parent_h2' => $current_h2, 'text' => $text );
-                }
-            }
+    // Primary source: Elementor structure when the page IS Elementor (canonical visual order),
+    // otherwise the rendered DOM. Run the other afterwards as a backfill so anything missed
+    // (e.g. shortcode-rendered headings) is still captured.
+    if ( $is_elementor ) {
+        tse_collect_headings_from_elementor( $elementor_parsed, $h1, $h2, $h3_pairs, $seen_h2, $seen_h3 );
+        tse_collect_headings_from_dom( $dom, $h1, $h2, $h3_pairs, $seen_h2, $seen_h3 );
+    } else {
+        tse_collect_headings_from_dom( $dom, $h1, $h2, $h3_pairs, $seen_h2, $seen_h3 );
+        if ( is_array( $elementor_parsed ) && ! empty( $elementor_parsed['headings'] ) ) {
+            tse_collect_headings_from_elementor( $elementor_parsed, $h1, $h2, $h3_pairs, $seen_h2, $seen_h3 );
         }
     }
 
-    // (3) Last resort: live HTML restricted to <main>/<article> so theme chrome is excluded.
+    // Last resort: live HTML scoped to <main>/<article> so theme chrome is excluded.
     if ( ( '' === $h1 || empty( $h2 ) ) && '' !== trim( (string) $live_html ) ) {
         $scope    = tse_extract_main_html( $live_html );
         $live_dom = tse_load_dom( $scope );
@@ -262,6 +248,35 @@ function tse_extract_headings( $dom, $elementor_parsed = null, $live_html = '' )
         'h2' => $h2,
         'h3' => $h3_pairs,
     );
+}
+
+/**
+ * Walk Elementor's flat heading list (built by the walker) using the shared dedupe state.
+ */
+function tse_collect_headings_from_elementor( $elementor_parsed, &$h1, &$h2, &$h3_pairs, &$seen_h2, &$seen_h3 ) {
+    if ( empty( $elementor_parsed['headings'] ) ) return;
+    $current_h2 = '';
+    foreach ( $elementor_parsed['headings'] as $h ) {
+        $text  = isset( $h['text'] )  ? trim( (string) $h['text'] )            : '';
+        $level = isset( $h['level'] ) ? strtolower( (string) $h['level'] )     : 'h2';
+        if ( '' === $text ) continue;
+        $k = strtolower( $text );
+        if ( 'h1' === $level ) {
+            if ( '' === $h1 ) $h1 = $text;
+        } elseif ( 'h2' === $level ) {
+            if ( ! isset( $seen_h2[ $k ] ) ) {
+                $seen_h2[ $k ] = true;
+                $h2[] = $text;
+            }
+            $current_h2 = $text;
+        } elseif ( 'h3' === $level ) {
+            $pk = $k . '||' . strtolower( $current_h2 );
+            if ( ! isset( $seen_h3[ $pk ] ) ) {
+                $seen_h3[ $pk ] = true;
+                $h3_pairs[] = array( 'parent_h2' => $current_h2, 'text' => $text );
+            }
+        }
+    }
 }
 
 /**
@@ -821,7 +836,7 @@ function tse_detect_cro( $rendered_html, $plain_text, $elementor_parsed ) {
  * Elementor parsing
  * ---------------------------------------------------------------------- */
 
-function tse_parse_elementor( $raw ) {
+function tse_parse_elementor( $raw, $post_title = '' ) {
     $result = array(
         'is_elementor'  => false,
         'sections'      => array(),
@@ -832,6 +847,7 @@ function tse_parse_elementor( $raw ) {
         'form_fields'   => array(),
         'has_faq'       => false,
         'headings'      => array(),
+        'post_title'    => (string) $post_title,
     );
 
     if ( empty( $raw ) ) {
@@ -854,7 +870,8 @@ function tse_parse_elementor( $raw ) {
         );
     }
 
-    // Dedupe consecutive identical chunks (case-insensitive).
+    // Dedupe consecutive identical chunks (case-insensitive) then append sentence
+    // punctuation so plain_text reads as proper sentences, not a run-on.
     $deduped = array();
     $prev    = '';
     foreach ( $clean_chunks as $c ) {
@@ -863,7 +880,16 @@ function tse_parse_elementor( $raw ) {
         $deduped[] = $c;
         $prev = $n;
     }
-    $result['clean_text'] = trim( preg_replace( '/\s+/u', ' ', implode( ' ', $deduped ) ) );
+    $pieces = array();
+    foreach ( $deduped as $c ) {
+        $c = trim( (string) $c );
+        if ( '' === $c ) continue;
+        if ( ! preg_match( '/[.!?:;]$/u', $c ) ) {
+            $c .= '.';
+        }
+        $pieces[] = $c;
+    }
+    $result['clean_text'] = trim( preg_replace( '/\s+/u', ' ', implode( ' ', $pieces ) ) );
 
     return $result;
 }
@@ -900,21 +926,45 @@ function tse_elementor_map_widget( $node, &$clean_chunks, &$flags ) {
             }
             return array( 'type' => 'heading', 'level' => $level, 'text' => $text );
 
+        // Elementor Pro theme builder title widgets — almost always render as the page H1.
+        case 'theme-post-title':
+        case 'theme-page-title':
+        case 'theme-archive-title':
+            $text  = isset( $s['title'] ) ? wp_strip_all_tags( (string) $s['title'] ) : '';
+            if ( '' === $text && ! empty( $flags['post_title'] ) ) {
+                $text = (string) $flags['post_title'];
+            }
+            $level = isset( $s['header_size'] ) ? strtolower( (string) $s['header_size'] ) : 'h1';
+            if ( ! preg_match( '/^h[1-6]$/', $level ) ) $level = 'h1';
+            if ( '' !== $text ) {
+                $clean_chunks[] = $text;
+                $flags['headings'][] = array( 'level' => $level, 'text' => $text );
+            }
+            return array( 'type' => 'heading', 'level' => $level, 'text' => $text, 'widget_type' => $wt );
+
+        case 'theme-post-excerpt':
+            $text = isset( $s['excerpt'] ) ? tse_html_to_text( (string) $s['excerpt'] ) : '';
+            if ( '' !== $text ) $clean_chunks[] = $text;
+            return array( 'type' => 'text', 'text' => $text, 'widget_type' => $wt );
+
         case 'text-editor':
         case 'theme-post-content':
-            $text = isset( $s['editor'] ) ? wp_strip_all_tags( (string) $s['editor'] ) : '';
-            if ( $text !== '' ) $clean_chunks[] = $text;
+            $text = isset( $s['editor'] ) ? tse_html_to_text( (string) $s['editor'] ) : '';
+            if ( '' !== $text ) $clean_chunks[] = $text;
             return array( 'type' => 'text', 'text' => $text );
 
         case 'button':
-        case 'theme-site-logo':
-            $text = isset( $s['text'] ) ? (string) $s['text'] : '';
+            $text = isset( $s['text'] ) ? trim( (string) $s['text'] ) : '';
             $link = isset( $s['link']['url'] ) ? (string) $s['link']['url'] : '';
-            if ( $text !== '' ) {
+            if ( '' !== $text ) {
                 $clean_chunks[] = $text;
                 $flags['button_texts'][] = $text;
             }
             return array( 'type' => 'button', 'text' => $text, 'link' => $link );
+
+        case 'theme-site-logo':
+            $url = isset( $s['image']['url'] ) ? (string) $s['image']['url'] : '';
+            return array( 'type' => 'image', 'url' => $url, 'alt' => '', 'widget_type' => $wt );
 
         case 'image':
         case 'theme-post-featured-image':
@@ -924,18 +974,18 @@ function tse_elementor_map_widget( $node, &$clean_chunks, &$flags ) {
 
         case 'icon-box':
         case 'image-box':
-            $h = isset( $s['title_text'] ) ? wp_strip_all_tags( (string) $s['title_text'] ) : '';
-            $d = isset( $s['description_text'] ) ? wp_strip_all_tags( (string) $s['description_text'] ) : '';
-            if ( $h !== '' ) $clean_chunks[] = $h;
-            if ( $d !== '' ) $clean_chunks[] = $d;
+            $h = isset( $s['title_text'] )       ? wp_strip_all_tags( (string) $s['title_text'] )       : '';
+            $d = isset( $s['description_text'] ) ? tse_html_to_text(  (string) $s['description_text'] ) : '';
+            if ( '' !== $h ) $clean_chunks[] = $h;
+            if ( '' !== $d ) $clean_chunks[] = $d;
             return array( 'type' => 'icon-box', 'heading' => $h, 'description' => $d );
 
         case 'icon-list':
             $items = array();
             if ( ! empty( $s['icon_list'] ) && is_array( $s['icon_list'] ) ) {
                 foreach ( $s['icon_list'] as $it ) {
-                    $t = isset( $it['text'] ) ? (string) $it['text'] : '';
-                    if ( $t !== '' ) {
+                    $t = isset( $it['text'] ) ? trim( wp_strip_all_tags( (string) $it['text'] ) ) : '';
+                    if ( '' !== $t ) {
                         $items[] = $t;
                         $clean_chunks[] = $t;
                     }
@@ -949,10 +999,10 @@ function tse_elementor_map_widget( $node, &$clean_chunks, &$flags ) {
             $tabs = isset( $s['tabs'] ) ? $s['tabs'] : ( isset( $s['_accordion_items'] ) ? $s['_accordion_items'] : array() );
             if ( is_array( $tabs ) ) {
                 foreach ( $tabs as $t ) {
-                    $q = isset( $t['tab_title'] ) ? wp_strip_all_tags( (string) $t['tab_title'] ) : '';
-                    $a = isset( $t['tab_content'] ) ? wp_strip_all_tags( (string) $t['tab_content'] ) : '';
-                    if ( $q !== '' ) $clean_chunks[] = $q;
-                    if ( $a !== '' ) $clean_chunks[] = $a;
+                    $q = isset( $t['tab_title'] )   ? trim( wp_strip_all_tags( (string) $t['tab_title'] ) ) : '';
+                    $a = isset( $t['tab_content'] ) ? tse_html_to_text( (string) $t['tab_content'] )         : '';
+                    if ( '' !== $q ) $clean_chunks[] = $q;
+                    if ( '' !== $a ) $clean_chunks[] = $a;
                     $items[] = array( 'q' => $q, 'a' => $a );
                 }
             }
@@ -985,8 +1035,33 @@ function tse_elementor_map_widget( $node, &$clean_chunks, &$flags ) {
             $flags['has_testimonial'] = true;
             return array( 'type' => 'testimonial', 'widget_type' => $wt );
 
+        // Pure structural / chrome widgets — keep an entry for counts but don't
+        // pollute clean_text with their settings noise.
+        case 'breadcrumbs':
+        case 'nav-menu':
+        case 'theme-nav-menu':
+        case 'post-info':
+        case 'sidebar':
+        case 'spacer':
+        case 'divider':
+        case 'google_maps':
+        case 'social-icons':
+            return array( 'type' => 'structural', 'widget_type' => $wt );
+
         default:
-            // Fallback: collect all string settings as text evidence.
+            // Pattern: any widget exposing header_size + title → treat as heading.
+            // Catches addon heading widgets (Essential Addons, JetElements, Crocoblock, …).
+            if ( isset( $s['header_size'] ) && isset( $s['title'] ) && '' !== trim( (string) $s['title'] ) ) {
+                $text  = wp_strip_all_tags( (string) $s['title'] );
+                $level = strtolower( (string) $s['header_size'] );
+                if ( ! preg_match( '/^h[1-6]$/', $level ) ) $level = 'h2';
+                if ( '' !== $text ) {
+                    $clean_chunks[] = $text;
+                    $flags['headings'][] = array( 'level' => $level, 'text' => $text );
+                }
+                return array( 'type' => 'heading', 'level' => $level, 'text' => $text, 'widget_type' => $wt );
+            }
+            // Fallback: harvest meaningful strings from settings.
             $texts = array();
             tse_collect_strings( $s, $texts );
             $summary = implode( ' ', array_slice( $texts, 0, 20 ) );
@@ -1233,6 +1308,21 @@ function tse_exporter_assemble_bundle( $records, $postprocess, $opts, $truncated
 /* -------------------------------------------------------------------------
  * URL helpers
  * ---------------------------------------------------------------------- */
+
+/**
+ * Convert HTML to readable plain text with proper word boundaries.
+ * Inserts a space at the end of block-level tags so e.g. <h3>Fast</h3><p>Reliable</p>
+ * doesn't collapse into "FastReliable".
+ */
+function tse_html_to_text( $html ) {
+    $html = (string) $html;
+    if ( '' === $html ) return '';
+    $html = preg_replace( '#</(?:p|div|h[1-6]|li|td|th|tr|section|article|header|footer|aside|nav|main|blockquote|figure|figcaption|details|summary|dt|dd)>#i', ' ', $html );
+    $html = preg_replace( '#<br\s*/?>#i', ' ', $html );
+    $text = wp_strip_all_tags( $html );
+    $text = preg_replace( '/\s+/u', ' ', $text );
+    return trim( $text );
+}
 
 function tse_normalize_text( $text ) {
     $text = (string) $text;

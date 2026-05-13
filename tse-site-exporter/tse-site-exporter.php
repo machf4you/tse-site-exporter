@@ -2,7 +2,7 @@
 /**
  * Plugin Name: TSE Site Exporter
  * Description: Exports AI-ready structured website intelligence (SEO, content hierarchy, internal/external links, media, CRO signals, full structured-data audit with classification/quality flags, interpreted Elementor structure, page classification & site hierarchy) as a downloadable ZIP of JSON files.
- * Version:     2.1.1
+ * Version:     2.1.2
  * Author:      TSE
  * License:     GPL-2.0-or-later
  * Text Domain: tse-site-exporter
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'TSE_SITE_EXPORTER_VERSION', '2.1.1' );
+define( 'TSE_SITE_EXPORTER_VERSION', '2.1.2' );
 define( 'TSE_SITE_EXPORTER_NONCE',   'tse_site_exporter_export' );
 define( 'TSE_SITE_EXPORTER_PATH',    plugin_dir_path( __FILE__ ) );
 

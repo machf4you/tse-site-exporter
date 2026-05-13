@@ -82,6 +82,17 @@ V2: Upgrade from raw content export → AI-ready structured website intelligence
   - **Elementor cleanup**: `tse_parse_elementor` dedupes consecutive identical chunks in `clean_text`. `tse_collect_strings` (fallback for unknown widgets) now filters out URLs, hex colours, CSS classes (`elementor-*`, `eicon-*`, `fa fas`, `wp-*`, `e-*`, `et-*`, `jet-*`, `hfe-*`), pure numbers/dimensions, and strings with no letter characters.
   - **Plain text**: new `tse_normalize_text` collapses whitespace and dedupes consecutive identical sentences. On Elementor pages with thin rendered output, `plain_text` falls back to `elementor_clean_text`.
   - Validated via 30-check quality smoke harness (live-HTML SEO, template expansion for RankMath/Yoast/AIOSEO, robots parsing from live + meta, Elementor-only H1, DOM+Elementor heading merge, `<main>` scoping, clean_text dedupe, collect_strings filter, normalize_text dedupe).
+- V2.1.2 — Content-structure quality round:
+  - Elementor Pro theme builder widgets (`theme-post-title`, `theme-page-title`, `theme-archive-title`) now have dedicated mappers that emit as `h1` headings; fall back to the post title supplied via new `tse_parse_elementor( $raw, $post_title )` argument when the widget setting is empty.
+  - Pattern-based heading detection in `default:` branch — any unknown widget exposing `header_size + title` is now treated as a heading. Catches Essential Addons, JetElements, Crocoblock, etc.
+  - New `tse_html_to_text` helper inserts word boundaries at block-level tags (`p`, `div`, `h1-h6`, `li`, `td/th/tr`, `section`, `article`, `header/footer/nav`, `aside`, `main`, `blockquote`, `figure`, `figcaption`, `details/summary`, `dt/dd`, `br`) before `wp_strip_all_tags`. Fixes `<h3>Fast</h3><p>Reliable</p>` collapsing into `FastReliable`.
+  - Block-aware text conversion applied to `text-editor`, `theme-post-content`, `theme-post-excerpt`, `icon-box` description, toggle/accordion `tab_content`, the page-level `plain_text` and `shortcodes_removed`.
+  - `clean_text` chunks are joined with sentence punctuation (`. ` appended where missing), so the joined text reads as proper sentences for AI ingestion.
+  - Heading source priority is now `is_elementor` aware: Elementor → DOM → live HTML when Elementor, otherwise DOM → Elementor → live HTML. Visual order matches the rendered page.
+  - Structural / chrome widgets (`breadcrumbs`, `nav-menu`, `theme-nav-menu`, `post-info`, `sidebar`, `spacer`, `divider`, `google_maps`, `social-icons`) now emit as `structural` and skip the noisy string-harvester fallback — `clean_text` stays clean.
+  - `theme-site-logo` correctly typed as `image`, not `button`.
+  - Validated via 15-check content-structure smoke + 7-check regression: `tse_html_to_text` word boundaries, theme-post-title H1 fallback, addon heading pattern detection, sentence-punctuation join, icon-box / text-editor paragraph splitting, Elementor-primary heading order on Elementor pages, DOM-primary on non-Elementor, structural-widget exclusion, consecutive-dedupe preserved, theme-site-logo typing.
+- Combined test count V2.1.2: 33 (V2.0) + 35 (V2.1 schema) + 30 (V2.1.1 quality) + 15 (V2.1.2 content) + 7 (V2.1.2 regression) = **120/120**.
 
 ## Validation
 - `php -l` clean on all PHP files.
