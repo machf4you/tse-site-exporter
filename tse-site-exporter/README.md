@@ -194,5 +194,7 @@ The parser walks `_elementor_data` recursively and applies a per-widget mapper f
 
 ## Versioning
 
+- v2.1.1 — Extraction-quality fixes: live-HTML-first SEO (title/description/canonical/og:*/robots), Rank Math + Yoast + AIOSEO template-variable expansion, H1/H2/H3 now combines `the_content` DOM with Elementor heading widgets and `<main>`/`<article>` live HTML (with proper dedup), `elementor_clean_text` dedupes consecutive duplicates, tighter `tse_collect_strings` filter (no more CSS class / icon / hex / URL noise), `plain_text` falls back to `elementor_clean_text` on Elementor pages where rendered content is thin.
+- v2.1.0 — Structured-data audit: resilient JSON-LD extractor, classification, quality flags, site rollup.
 - v2.0.0 — SEO/CRO/AI export, classification, hierarchy, anchor frequency, Elementor interpreter, schema extraction, slice files, optional live-fetch + broken-link check.
 - v1.0.0 — Raw posts/pages/CPT/products export.

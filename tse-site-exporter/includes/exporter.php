@@ -116,16 +116,24 @@ function tse_exporter_build_record( $post, $front_id, $opts ) {
 
     $dom = tse_load_dom( $rendered );
 
-    $headings = tse_extract_headings( $dom );
+    // Parse Elementor first so its heading widgets / clean_text feed downstream extractors.
+    $elementor_data   = get_post_meta( $post->ID, '_elementor_data', true );
+    $elementor_parsed = tse_parse_elementor( $elementor_data );
+
+    $headings = tse_extract_headings( $dom, $elementor_parsed, $live_html );
     $faqs     = tse_extract_faqs( $dom, $html_for_schema );
     $links    = tse_extract_links( $dom, $permalink );
     $images   = tse_extract_images( $dom );
 
-    $plain_text        = trim( wp_strip_all_tags( $rendered ) );
-    $shortcodes_removed = trim( wp_strip_all_tags( strip_shortcodes( $post->post_content ) ) );
+    $plain_text         = tse_normalize_text( wp_strip_all_tags( $rendered ) );
+    $shortcodes_removed = tse_normalize_text( wp_strip_all_tags( strip_shortcodes( $post->post_content ) ) );
 
-    $elementor_data   = get_post_meta( $post->ID, '_elementor_data', true );
-    $elementor_parsed = tse_parse_elementor( $elementor_data );
+    // Elementor pages frequently have empty/placeholder post_content. When the
+    // Elementor-derived clean text is substantially richer, use it as plain_text.
+    if ( ! empty( $elementor_parsed['is_elementor'] )
+        && strlen( $plain_text ) < max( 200, (int) ( strlen( $elementor_parsed['clean_text'] ) / 2 ) ) ) {
+        $plain_text = $elementor_parsed['clean_text'];
+    }
 
     $classification = tse_classify( $post, $front_id );
     $is_homepage    = ( $front_id && (int) $post->ID === (int) $front_id );
@@ -154,7 +162,7 @@ function tse_exporter_build_record( $post, $front_id, $opts ) {
         ) : null,
         'classification' => $classification,
 
-        'seo'        => tse_extract_seo( $post->ID ),
+        'seo'        => tse_extract_seo( $post->ID, $live_html ),
         'content'    => array(
             'h1'                    => $headings['h1'],
             'h2'                    => $headings['h2'],
@@ -206,46 +214,47 @@ function tse_dom_text( $node ) {
  * Content structure
  * ---------------------------------------------------------------------- */
 
-function tse_extract_headings( $dom ) {
-    $h1 = '';
-    $h2 = array();
-    $h3 = array();
+function tse_extract_headings( $dom, $elementor_parsed = null, $live_html = '' ) {
+    $h1       = '';
+    $h2       = array();
+    $h3_pairs = array();
+    $seen_h2  = array();
+    $seen_h3  = array();
 
-    $current_h2 = '';
-    foreach ( array( 'h1', 'h2', 'h3' ) as $tag ) {
-        $nodes = $dom->getElementsByTagName( $tag );
-        foreach ( $nodes as $n ) {
-            $text = tse_dom_text( $n );
-            if ( '' === $text ) {
-                continue;
-            }
-            if ( 'h1' === $tag && '' === $h1 ) {
-                $h1 = $text;
-            } elseif ( 'h2' === $tag ) {
-                $h2[] = $text;
-            } elseif ( 'h3' === $tag ) {
-                $h3[] = $text;
+    // (1) Headings from the rendered the_content DOM (document order).
+    tse_collect_headings_from_dom( $dom, $h1, $h2, $h3_pairs, $seen_h2, $seen_h3 );
+
+    // (2) Headings from Elementor widgets, deduped against the same state.
+    if ( is_array( $elementor_parsed ) && ! empty( $elementor_parsed['headings'] ) ) {
+        $current_h2 = '';
+        foreach ( $elementor_parsed['headings'] as $h ) {
+            $text  = isset( $h['text'] )  ? trim( (string) $h['text'] )            : '';
+            $level = isset( $h['level'] ) ? strtolower( (string) $h['level'] )     : 'h2';
+            if ( '' === $text ) continue;
+            $k = strtolower( $text );
+            if ( 'h1' === $level ) {
+                if ( '' === $h1 ) $h1 = $text;
+            } elseif ( 'h2' === $level ) {
+                if ( ! isset( $seen_h2[ $k ] ) ) {
+                    $seen_h2[ $k ] = true;
+                    $h2[] = $text;
+                }
+                $current_h2 = $text;
+            } elseif ( 'h3' === $level ) {
+                $pk = $k . '||' . strtolower( $current_h2 );
+                if ( ! isset( $seen_h3[ $pk ] ) ) {
+                    $seen_h3[ $pk ] = true;
+                    $h3_pairs[] = array( 'parent_h2' => $current_h2, 'text' => $text );
+                }
             }
         }
     }
 
-    // Build {parent_h2, text} pairs for h3 by walking in document order.
-    $h3_pairs = array();
-    if ( ! empty( $h3 ) ) {
-        $xp = new DOMXPath( $dom );
-        $nodes = $xp->query( '//h2 | //h3' );
-        $current_h2 = '';
-        foreach ( $nodes as $n ) {
-            $text = tse_dom_text( $n );
-            if ( '' === $text ) {
-                continue;
-            }
-            if ( 'h2' === strtolower( $n->nodeName ) ) {
-                $current_h2 = $text;
-            } else {
-                $h3_pairs[] = array( 'parent_h2' => $current_h2, 'text' => $text );
-            }
-        }
+    // (3) Last resort: live HTML restricted to <main>/<article> so theme chrome is excluded.
+    if ( ( '' === $h1 || empty( $h2 ) ) && '' !== trim( (string) $live_html ) ) {
+        $scope    = tse_extract_main_html( $live_html );
+        $live_dom = tse_load_dom( $scope );
+        tse_collect_headings_from_dom( $live_dom, $h1, $h2, $h3_pairs, $seen_h2, $seen_h3 );
     }
 
     return array(
@@ -253,6 +262,49 @@ function tse_extract_headings( $dom ) {
         'h2' => $h2,
         'h3' => $h3_pairs,
     );
+}
+
+/**
+ * Walk a DOM in document order and append unique H1/H2/H3 into the shared state.
+ */
+function tse_collect_headings_from_dom( $dom, &$h1, &$h2, &$h3_pairs, &$seen_h2, &$seen_h3 ) {
+    if ( ! ( $dom instanceof DOMDocument ) ) return;
+    $xp = new DOMXPath( $dom );
+    $nodes = $xp->query( '//h1 | //h2 | //h3' );
+    if ( ! $nodes ) return;
+    $current_h2 = '';
+    foreach ( $nodes as $n ) {
+        $text = tse_dom_text( $n );
+        if ( '' === $text ) continue;
+        $tag = strtolower( $n->nodeName );
+        $k   = strtolower( $text );
+        if ( 'h1' === $tag ) {
+            if ( '' === $h1 ) $h1 = $text;
+        } elseif ( 'h2' === $tag ) {
+            if ( ! isset( $seen_h2[ $k ] ) ) {
+                $seen_h2[ $k ] = true;
+                $h2[] = $text;
+            }
+            $current_h2 = $text;
+        } elseif ( 'h3' === $tag ) {
+            $pk = $k . '||' . strtolower( $current_h2 );
+            if ( ! isset( $seen_h3[ $pk ] ) ) {
+                $seen_h3[ $pk ] = true;
+                $h3_pairs[] = array( 'parent_h2' => $current_h2, 'text' => $text );
+            }
+        }
+    }
+}
+
+/**
+ * Narrow live HTML to <main>/<article>/<body> so live-HTML heading extraction
+ * doesn't pull in theme headers, footers, nav, widget areas, etc.
+ */
+function tse_extract_main_html( $html ) {
+    if ( preg_match( '#<main\b[^>]*>(.*?)</main>#is',       $html, $m ) ) return $m[1];
+    if ( preg_match( '#<article\b[^>]*>(.*?)</article>#is', $html, $m ) ) return $m[1];
+    if ( preg_match( '#<body\b[^>]*>(.*?)</body>#is',       $html, $m ) ) return $m[1];
+    return $html;
 }
 
 function tse_extract_faqs( $dom, $html ) {
@@ -403,48 +455,94 @@ function tse_extract_schema_blocks( $html ) {
  * SEO (Yoast / Rank Math)
  * ---------------------------------------------------------------------- */
 
-function tse_extract_seo( $post_id ) {
-    $rank_math_title = get_post_meta( $post_id, 'rank_math_title', true );
-    $rank_math_desc  = get_post_meta( $post_id, 'rank_math_description', true );
-    $yoast_title     = get_post_meta( $post_id, '_yoast_wpseo_title', true );
-    $yoast_desc      = get_post_meta( $post_id, '_yoast_wpseo_metadesc', true );
+function tse_extract_seo( $post_id, $live_html = '' ) {
+    $post = get_post( $post_id );
 
-    $source = 'none';
-    if ( $rank_math_title || $rank_math_desc ) $source = 'rank_math';
-    elseif ( $yoast_title || $yoast_desc ) $source = 'yoast';
+    // (1) Authoritative: live rendered <head>.
+    $live = tse_seo_extract_from_html( $live_html );
 
-    $title = $rank_math_title ?: $yoast_title ?: '';
-    $desc  = $rank_math_desc  ?: $yoast_desc  ?: '';
+    // (2) Raw plugin meta (frequently templates like "%title% %sep% %sitename%").
+    $rm_title  = get_post_meta( $post_id, 'rank_math_title', true );
+    $rm_desc   = get_post_meta( $post_id, 'rank_math_description', true );
+    $rm_canon  = get_post_meta( $post_id, 'rank_math_canonical_url', true );
+    $rm_kw     = get_post_meta( $post_id, 'rank_math_focus_keyword', true );
+    $rm_robots = get_post_meta( $post_id, 'rank_math_robots', true );
+    $rm_og_t   = get_post_meta( $post_id, 'rank_math_facebook_title', true );
+    $rm_og_d   = get_post_meta( $post_id, 'rank_math_facebook_description', true );
+    $rm_og_i   = get_post_meta( $post_id, 'rank_math_facebook_image', true );
+
+    $y_title   = get_post_meta( $post_id, '_yoast_wpseo_title', true );
+    $y_desc    = get_post_meta( $post_id, '_yoast_wpseo_metadesc', true );
+    $y_canon   = get_post_meta( $post_id, '_yoast_wpseo_canonical', true );
+    $y_noindex = get_post_meta( $post_id, '_yoast_wpseo_meta-robots-noindex', true );
+    $y_kw      = get_post_meta( $post_id, '_yoast_wpseo_focuskw', true );
+    $y_og_t    = get_post_meta( $post_id, '_yoast_wpseo_opengraph-title', true );
+    $y_og_d    = get_post_meta( $post_id, '_yoast_wpseo_opengraph-description', true );
+    $y_og_i    = get_post_meta( $post_id, '_yoast_wpseo_opengraph-image', true );
+
+    // AIOSEO.
+    $a_title = get_post_meta( $post_id, '_aioseo_title', true );
+    $a_desc  = get_post_meta( $post_id, '_aioseo_description', true );
+
+    $source = tse_seo_detect_source( $post_id );
+
+    // Title: live HTML → expanded plugin template → post title.
+    $title = '';
+    if ( '' !== $live['title'] ) {
+        $title = $live['title'];
+    } elseif ( '' !== (string) $rm_title ) {
+        $title = tse_seo_expand_template( $rm_title, $post );
+    } elseif ( '' !== (string) $y_title ) {
+        $title = tse_seo_expand_template( $y_title, $post );
+    } elseif ( '' !== (string) $a_title ) {
+        $title = tse_seo_expand_template( $a_title, $post );
+    } elseif ( $post ) {
+        $title = get_the_title( $post );
+    }
+
+    // Description: live HTML → expanded template → excerpt.
+    $desc = '';
+    if ( '' !== $live['description'] ) {
+        $desc = $live['description'];
+    } elseif ( '' !== (string) $rm_desc ) {
+        $desc = tse_seo_expand_template( $rm_desc, $post );
+    } elseif ( '' !== (string) $y_desc ) {
+        $desc = tse_seo_expand_template( $y_desc, $post );
+    } elseif ( '' !== (string) $a_desc ) {
+        $desc = tse_seo_expand_template( $a_desc, $post );
+    } elseif ( $post && '' !== (string) $post->post_excerpt ) {
+        $desc = wp_strip_all_tags( $post->post_excerpt );
+    }
+
+    $canonical = '' !== $live['canonical'] ? $live['canonical'] : ( $rm_canon ? $rm_canon : ( $y_canon ? $y_canon : '' ) );
 
     $focus_kw = array();
-    $rm_kw = get_post_meta( $post_id, 'rank_math_focus_keyword', true );
-    if ( $rm_kw ) {
-        $focus_kw = array_values( array_filter( array_map( 'trim', explode( ',', $rm_kw ) ) ) );
+    if ( '' !== (string) $rm_kw ) {
+        $focus_kw = array_values( array_filter( array_map( 'trim', explode( ',', (string) $rm_kw ) ) ) );
+    } elseif ( '' !== (string) $y_kw ) {
+        $focus_kw = array( trim( (string) $y_kw ) );
+    }
+
+    // Robots: prefer live <meta name="robots">.
+    $robots_index  = true;
+    $robots_follow = true;
+    if ( '' !== $live['robots'] ) {
+        $low = strtolower( $live['robots'] );
+        if ( false !== strpos( $low, 'noindex' ) )  $robots_index  = false;
+        if ( false !== strpos( $low, 'nofollow' ) ) $robots_follow = false;
     } else {
-        $y_kw = get_post_meta( $post_id, '_yoast_wpseo_focuskw', true );
-        if ( $y_kw ) {
-            $focus_kw = array( trim( $y_kw ) );
+        if ( is_array( $rm_robots ) ) {
+            if ( in_array( 'noindex',  $rm_robots, true ) ) $robots_index  = false;
+            if ( in_array( 'nofollow', $rm_robots, true ) ) $robots_follow = false;
         }
+        if ( '1' === (string) $y_noindex ) $robots_index = false;
     }
 
-    $canonical = get_post_meta( $post_id, 'rank_math_canonical_url', true );
-    if ( ! $canonical ) {
-        $canonical = get_post_meta( $post_id, '_yoast_wpseo_canonical', true );
-    }
-
-    $robots_noindex = false;
-    $rm_robots = get_post_meta( $post_id, 'rank_math_robots', true );
-    if ( is_array( $rm_robots ) && in_array( 'noindex', $rm_robots, true ) ) {
-        $robots_noindex = true;
-    }
-    $y_noindex = get_post_meta( $post_id, '_yoast_wpseo_meta-robots-noindex', true );
-    if ( '1' === (string) $y_noindex ) {
-        $robots_noindex = true;
-    }
-
-    $og_title = get_post_meta( $post_id, 'rank_math_facebook_title', true ) ?: get_post_meta( $post_id, '_yoast_wpseo_opengraph-title', true );
-    $og_desc  = get_post_meta( $post_id, 'rank_math_facebook_description', true ) ?: get_post_meta( $post_id, '_yoast_wpseo_opengraph-description', true );
-    $og_image = get_post_meta( $post_id, 'rank_math_facebook_image', true ) ?: get_post_meta( $post_id, '_yoast_wpseo_opengraph-image', true );
+    $og = array(
+        'title'       => '' !== $live['og_title']       ? $live['og_title']       : tse_seo_expand_template( $rm_og_t ? $rm_og_t : $y_og_t, $post ),
+        'description' => '' !== $live['og_description'] ? $live['og_description'] : tse_seo_expand_template( $rm_og_d ? $rm_og_d : $y_og_d, $post ),
+        'image'       => '' !== $live['og_image']       ? $live['og_image']       : ( $rm_og_i ? $rm_og_i : ( $y_og_i ? $y_og_i : '' ) ),
+    );
 
     return array(
         'source'         => $source,
@@ -453,16 +551,143 @@ function tse_extract_seo( $post_id ) {
         'focus_keywords' => $focus_kw,
         'canonical'      => (string) $canonical,
         'robots'         => array(
-            'index'  => ! $robots_noindex,
-            'follow' => true,
+            'index'  => (bool) $robots_index,
+            'follow' => (bool) $robots_follow,
         ),
-        'og' => array(
-            'title'       => (string) $og_title,
-            'description' => (string) $og_desc,
-            'image'       => (string) $og_image,
-        ),
-        'schema_types' => array(),
+        'og'             => $og,
+        'schema_types'   => array(),
     );
+}
+
+/**
+ * Detect which SEO plugin is active (or which has data on this post).
+ */
+function tse_seo_detect_source( $post_id ) {
+    if ( defined( 'RANK_MATH_VERSION' ) || class_exists( 'RankMath\\Helper' ) ) return 'rank_math';
+    if ( defined( 'WPSEO_VERSION' )     || class_exists( 'WPSEO_Options' ) )    return 'yoast';
+    if ( defined( 'AIOSEO_VERSION' ) )                                          return 'aioseo';
+
+    $map = array(
+        'rank_math' => array( 'rank_math_title', 'rank_math_description', 'rank_math_focus_keyword' ),
+        'yoast'     => array( '_yoast_wpseo_title', '_yoast_wpseo_metadesc', '_yoast_wpseo_focuskw' ),
+        'aioseo'    => array( '_aioseo_title', '_aioseo_description' ),
+    );
+    foreach ( $map as $plugin => $keys ) {
+        foreach ( $keys as $k ) {
+            $v = get_post_meta( $post_id, $k, true );
+            if ( '' !== (string) $v ) return $plugin;
+        }
+    }
+    return 'none';
+}
+
+/**
+ * Pull title / description / robots / canonical / og:* directly from rendered HTML head.
+ */
+function tse_seo_extract_from_html( $html ) {
+    $out = array(
+        'title'          => '',
+        'description'    => '',
+        'canonical'      => '',
+        'robots'         => '',
+        'og_title'       => '',
+        'og_description' => '',
+        'og_image'       => '',
+    );
+    if ( '' === trim( (string) $html ) ) {
+        return $out;
+    }
+
+    $head_html = $html;
+    if ( preg_match( '#<head\b[^>]*>(.*?)</head>#is', $html, $hm ) ) {
+        $head_html = $hm[1];
+    }
+
+    if ( preg_match( '#<title\b[^>]*>(.*?)</title>#is', $head_html, $m ) ) {
+        $out['title'] = trim( html_entity_decode( wp_strip_all_tags( $m[1] ), ENT_QUOTES, 'UTF-8' ) );
+    }
+
+    // meta tags are written attribute-order-agnostic — match both name-first and content-first.
+    $meta_grabs = array(
+        'description'    => 'description',
+        'robots'         => 'robots',
+    );
+    foreach ( $meta_grabs as $key => $name ) {
+        $v = tse_seo_match_meta_name( $head_html, $name );
+        if ( '' !== $v ) $out[ $key ] = $v;
+    }
+    $prop_grabs = array(
+        'og_title'       => 'og:title',
+        'og_description' => 'og:description',
+        'og_image'       => 'og:image',
+    );
+    foreach ( $prop_grabs as $key => $prop ) {
+        $v = tse_seo_match_meta_property( $head_html, $prop );
+        if ( '' !== $v ) $out[ $key ] = $v;
+    }
+
+    if ( preg_match( '#<link\s+[^>]*rel\s*=\s*["\']canonical["\'][^>]*href\s*=\s*["\']([^"\']*)["\']#is', $head_html, $m )
+        || preg_match( '#<link\s+[^>]*href\s*=\s*["\']([^"\']*)["\'][^>]*rel\s*=\s*["\']canonical["\']#is', $head_html, $m ) ) {
+        $out['canonical'] = trim( html_entity_decode( $m[1], ENT_QUOTES, 'UTF-8' ) );
+    }
+
+    return $out;
+}
+
+function tse_seo_match_meta_name( $head_html, $name ) {
+    $n = preg_quote( $name, '#' );
+    if ( preg_match( '#<meta\s+[^>]*name\s*=\s*["\']' . $n . '["\'][^>]*content\s*=\s*["\']([^"\']*)["\']#is', $head_html, $m )
+        || preg_match( '#<meta\s+[^>]*content\s*=\s*["\']([^"\']*)["\'][^>]*name\s*=\s*["\']' . $n . '["\']#is', $head_html, $m ) ) {
+        return trim( html_entity_decode( $m[1], ENT_QUOTES, 'UTF-8' ) );
+    }
+    return '';
+}
+
+function tse_seo_match_meta_property( $head_html, $prop ) {
+    $p = preg_quote( $prop, '#' );
+    if ( preg_match( '#<meta\s+[^>]*property\s*=\s*["\']' . $p . '["\'][^>]*content\s*=\s*["\']([^"\']*)["\']#is', $head_html, $m )
+        || preg_match( '#<meta\s+[^>]*content\s*=\s*["\']([^"\']*)["\'][^>]*property\s*=\s*["\']' . $p . '["\']#is', $head_html, $m ) ) {
+        return trim( html_entity_decode( $m[1], ENT_QUOTES, 'UTF-8' ) );
+    }
+    return '';
+}
+
+/**
+ * Expand %title%/%sitename%/%sep% style variables used by Yoast / Rank Math / AIOSEO.
+ * Prefer the plugin's own helper if available.
+ */
+function tse_seo_expand_template( $tpl, $post ) {
+    $tpl = (string) $tpl;
+    if ( '' === $tpl ) return '';
+
+    if ( $post && function_exists( 'wpseo_replace_vars' ) ) {
+        $r = wpseo_replace_vars( $tpl, $post );
+        if ( ! empty( $r ) && $r !== $tpl ) return $r;
+    }
+    if ( $post && class_exists( '\\RankMath\\Helper' ) && method_exists( '\\RankMath\\Helper', 'replace_vars' ) ) {
+        $r = \RankMath\Helper::replace_vars( $tpl, $post );
+        if ( ! empty( $r ) && $r !== $tpl ) return $r;
+    }
+
+    $title    = $post ? get_the_title( $post ) : '';
+    $excerpt  = $post && '' !== (string) $post->post_excerpt ? wp_strip_all_tags( $post->post_excerpt ) : '';
+    $sitename = get_bloginfo( 'name' );
+    $sitedesc = get_bloginfo( 'description' );
+    $vars = array(
+        '%title%' => $title,             '%%title%%' => $title,
+        '%sitename%' => $sitename,       '%%sitename%%' => $sitename,
+        '%site_title%' => $sitename,     '%%site_title%%' => $sitename,
+        '%sitedesc%' => $sitedesc,       '%%sitedesc%%' => $sitedesc,
+        '%sep%' => '-',                  '%%sep%%' => '-',
+        '%page%' => '',                  '%%page%%' => '',
+        '%excerpt%' => $excerpt,         '%%excerpt%%' => $excerpt,
+        '%excerpt_only%' => $excerpt,    '%%excerpt_only%%' => $excerpt,
+        '%primary_category%' => '',      '%%primary_category%%' => '',
+        '%category%' => '',              '%%category%%' => '',
+    );
+    $out = strtr( $tpl, $vars );
+    $out = preg_replace( '/\s+/u', ' ', $out );
+    return trim( $out );
 }
 
 /* -------------------------------------------------------------------------
@@ -606,6 +831,7 @@ function tse_parse_elementor( $raw ) {
         'has_form'      => false,
         'form_fields'   => array(),
         'has_faq'       => false,
+        'headings'      => array(),
     );
 
     if ( empty( $raw ) ) {
@@ -627,7 +853,17 @@ function tse_parse_elementor( $raw ) {
             'widgets' => $widgets,
         );
     }
-    $result['clean_text'] = trim( preg_replace( '/\s+/u', ' ', implode( ' ', $clean_chunks ) ) );
+
+    // Dedupe consecutive identical chunks (case-insensitive).
+    $deduped = array();
+    $prev    = '';
+    foreach ( $clean_chunks as $c ) {
+        $n = strtolower( trim( (string) $c ) );
+        if ( '' === $n || $n === $prev ) continue;
+        $deduped[] = $c;
+        $prev = $n;
+    }
+    $result['clean_text'] = trim( preg_replace( '/\s+/u', ' ', implode( ' ', $deduped ) ) );
 
     return $result;
 }
@@ -658,7 +894,10 @@ function tse_elementor_map_widget( $node, &$clean_chunks, &$flags ) {
         case 'heading':
             $text  = isset( $s['title'] ) ? wp_strip_all_tags( (string) $s['title'] ) : '';
             $level = isset( $s['header_size'] ) ? strtolower( (string) $s['header_size'] ) : 'h2';
-            if ( $text !== '' ) $clean_chunks[] = $text;
+            if ( '' !== $text ) {
+                $clean_chunks[] = $text;
+                $flags['headings'][] = array( 'level' => $level, 'text' => $text );
+            }
             return array( 'type' => 'heading', 'level' => $level, 'text' => $text );
 
         case 'text-editor':
@@ -766,9 +1005,19 @@ function tse_collect_strings( $value, &$out ) {
     if ( is_string( $value ) ) {
         $clean = wp_strip_all_tags( $value );
         $clean = trim( preg_replace( '/\s+/u', ' ', $clean ) );
-        if ( '' !== $clean && strlen( $clean ) < 500 ) {
-            $out[] = $clean;
-        }
+        if ( '' === $clean ) return;
+        $len = strlen( $clean );
+        if ( $len < 3 || $len > 500 ) return;
+        // URLs, hex colors, anchors.
+        if ( preg_match( '#^https?://#i', $clean ) ) return;
+        if ( '#' === $clean[0] ) return;
+        // Pure numbers / dimensions / percentages.
+        if ( preg_match( '/^[\d.,\-]+(?:px|em|rem|%|vh|vw|pt)?$/i', $clean ) ) return;
+        // Typical CSS / icon / theme tokens.
+        if ( preg_match( '/^(?:elementor|eicon|fa|fas|far|fab|wp-|e-|et-|edgtf-|jet-|hfe-)[a-z0-9_\-\s]*$/i', $clean ) ) return;
+        // Must contain at least one letter (skips colon-separated tokens, IDs, etc.).
+        if ( ! preg_match( '/\p{L}/u', $clean ) ) return;
+        $out[] = $clean;
     } elseif ( is_array( $value ) ) {
         foreach ( $value as $v ) {
             tse_collect_strings( $v, $out );
@@ -984,6 +1233,28 @@ function tse_exporter_assemble_bundle( $records, $postprocess, $opts, $truncated
 /* -------------------------------------------------------------------------
  * URL helpers
  * ---------------------------------------------------------------------- */
+
+function tse_normalize_text( $text ) {
+    $text = (string) $text;
+    if ( '' === $text ) return '';
+    $text = preg_replace( '/[\r\n\t]+/', ' ', $text );
+    $text = preg_replace( '/\s+/u', ' ', $text );
+    $text = trim( $text );
+    // Dedupe consecutive identical sentences (a common rendering artefact).
+    $parts = preg_split( '/(?<=[.!?])\s+/u', $text );
+    if ( ! $parts || count( $parts ) < 2 ) return $text;
+    $out  = array();
+    $prev = '';
+    foreach ( $parts as $p ) {
+        $p = trim( $p );
+        if ( '' === $p ) continue;
+        $k = strtolower( $p );
+        if ( $k === $prev ) continue;
+        $out[] = $p;
+        $prev = $k;
+    }
+    return implode( ' ', $out );
+}
 
 function tse_normalize_url( $url ) {
     if ( ! is_string( $url ) || '' === $url ) return '';

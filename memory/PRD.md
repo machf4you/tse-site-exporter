@@ -76,7 +76,12 @@ V2: Upgrade from raw content export → AI-ready structured website intelligence
   - New `schema-rollup.json` slice: totals, types_distribution, site_level presence flags, issue lists per quality flag, malformed_pages, recommendations.
   - Live-URL fetch toggle is now ON by default (essential because most SEO/schema plugins inject JSON-LD into `wp_head`, outside the post content).
   - Validated via 35-check PHP smoke harness covering arrays, `@graph`, malformed recovery, LB subtypes, nested counts, all quality flags, full rollup.
-- Distributable: `/app/tse-site-exporter.zip` (≈23 KB, 5 files).
+- V2.1.1 — Extraction-quality round:
+  - **SEO**: rewritten `tse_extract_seo` to take `$live_html` and use it as the authoritative source for title / description / canonical / og:* / robots. New helpers: `tse_seo_extract_from_html` (regex-based head parser, attribute-order-agnostic), `tse_seo_expand_template` (delegates to Yoast `wpseo_replace_vars` and Rank Math `Helper::replace_vars` if active; manual fallback expands `%title%`, `%%title%%`, `%sitename%`, `%sep%`, `%excerpt%`, etc.), `tse_seo_detect_source` (active-plugin + meta-sniffing for Rank Math / Yoast / AIOSEO). Robots noindex/nofollow parsed from live `<meta name=robots>` first.
+  - **Headings**: `tse_extract_headings` now combines three ordered passes — rendered DOM, Elementor heading widgets (newly emitted as a flat `headings` list by the walker), and live HTML restricted to `<main>`/`<article>` so theme chrome (header/footer/nav) is excluded. Single shared `seen_h2 / seen_h3` dedupe state keyed by normalised text + parent_h2.
+  - **Elementor cleanup**: `tse_parse_elementor` dedupes consecutive identical chunks in `clean_text`. `tse_collect_strings` (fallback for unknown widgets) now filters out URLs, hex colours, CSS classes (`elementor-*`, `eicon-*`, `fa fas`, `wp-*`, `e-*`, `et-*`, `jet-*`, `hfe-*`), pure numbers/dimensions, and strings with no letter characters.
+  - **Plain text**: new `tse_normalize_text` collapses whitespace and dedupes consecutive identical sentences. On Elementor pages with thin rendered output, `plain_text` falls back to `elementor_clean_text`.
+  - Validated via 30-check quality smoke harness (live-HTML SEO, template expansion for RankMath/Yoast/AIOSEO, robots parsing from live + meta, Elementor-only H1, DOM+Elementor heading merge, `<main>` scoping, clean_text dedupe, collect_strings filter, normalize_text dedupe).
 
 ## Validation
 - `php -l` clean on all PHP files.
