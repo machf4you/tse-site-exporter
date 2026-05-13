@@ -75,7 +75,21 @@ function tse_exporter_run( $opts ) {
     }
     unset( $r );
 
-    return tse_exporter_assemble_bundle( $records, $postprocess, $relationships, $authority, $opts, $truncated, $post_types );
+    $bundle = tse_exporter_assemble_bundle( $records, $postprocess, $relationships, $authority, $opts, $truncated, $post_types );
+
+    // V2.4 AI Analysis Layer: compact AI-ready datasets (only when slices enabled).
+    if ( ! empty( $opts['include_slices'] ) ) {
+        $ai = tse_ai_summary_build( $records, $relationships, $authority, $postprocess );
+        foreach ( $ai['files'] as $name => $payload ) {
+            $bundle[ $name ] = $payload;
+        }
+        // Refresh manifest.files to include the new keys.
+        if ( isset( $bundle['manifest.json'] ) ) {
+            $bundle['manifest.json']['files'] = array_keys( $bundle );
+        }
+    }
+
+    return $bundle;
 }
 
 /**

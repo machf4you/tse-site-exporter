@@ -2,7 +2,7 @@
 /**
  * Plugin Name: TSE Site Exporter
  * Description: Exports AI-ready structured website intelligence (SEO, content hierarchy, internal/external links, media, CRO signals, full structured-data audit, interpreted Elementor structure, page classification, site hierarchy, and a full internal-link relationship graph with per-page metrics, orphan/weak detection, classification flow and top hubs/authorities) as a downloadable ZIP of JSON files.
- * Version:     2.3.0
+ * Version:     2.4.0
  * Author:      TSE
  * License:     GPL-2.0-or-later
  * Text Domain: tse-site-exporter
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'TSE_SITE_EXPORTER_VERSION', '2.3.0' );
+define( 'TSE_SITE_EXPORTER_VERSION', '2.4.0' );
 define( 'TSE_SITE_EXPORTER_NONCE',   'tse_site_exporter_export' );
 define( 'TSE_SITE_EXPORTER_PATH',    plugin_dir_path( __FILE__ ) );
 
@@ -21,6 +21,7 @@ require_once TSE_SITE_EXPORTER_PATH . 'includes/exporter.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/postprocess.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/relationships.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/authority.php';
+require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_summary.php';
 
 /**
  * Admin menu under Tools.

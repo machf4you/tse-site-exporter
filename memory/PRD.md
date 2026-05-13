@@ -34,8 +34,17 @@ Build a WordPress plugin "TSE Site Exporter" that produces an AI-ready structure
 - New bundle files: `authority-map.json`, `weighted-link-graph.json`, `strategic-pages.json`, `cluster-signals.json`, `intelligence-flags.json`.
 - Per-PageRecord `authority` block.
 
+### V2.4.0 — AI Analysis Layer (2026-02)
+- `ai_summary.php` module — backend-only, no LLM/API calls. Builds compact AI-ready datasets:
+  - `ai-site-summary.json` — totals, distributions, top authorities/hubs, issue counts, coverage.
+  - `ai-page-summaries.json` — slim per-page records (no Elementor, no raw text, no schema dump). Includes URL, title, meta_title/description, H1, H2 list (top 10), H3 count, word_count, strategic_type, all 4 authority scores, link counts, cluster_id, is_isolated, top inbound/outbound anchors/sources, issue flags.
+  - `ai-linking-summary.json` — weak money pages, orphan + near-orphan pages, under-supported clusters, duplicate metadata, linking opportunities (suggested source → target candidates with rationale).
+  - `ai-cluster-summary.json` — main vs isolated clusters with recommended bridge sources from the main graph.
+- Per-page deterministic issue flags: missing_meta_title/description, short_meta_*, weak_h1, thin_content, no_incoming_links, near_orphan, no_outgoing_internal_links, low_authority_for_<type>_page, generic_anchors_only_inbound.
+- Token-economical: avg ~850 bytes per page summary on the smoke fixture.
+
 ## Backlog / Roadmap
-- **P1** AI Recommendations & Analysis Layer — content gap analysis, optimisation suggestions using LLM over the structured datasets.
+- **P1** Wire AI summary into actual LLM (e.g. Emergent Universal Key — Claude/GPT/Gemini) to generate human-readable audits and prioritised recommendations.
 - **P1** Local SEO analysis — NAP consistency, LocalBusiness completeness, geo-signal scoring.
 - **P2** Website replication / asset deployment workflows.
 - **P2** Dashboard / UI (post-backend phases).

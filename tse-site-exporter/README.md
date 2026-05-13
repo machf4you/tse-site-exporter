@@ -1,6 +1,6 @@
-# TSE Site Exporter — V2.3
+# TSE Site Exporter — V2.4
 
-A WordPress plugin that exports **AI-ready structured website intelligence** as a single downloadable ZIP of JSON files. Not a raw WordPress dump — every page is reduced to a canonical record covering SEO, content hierarchy, FAQs, links (with cross-references), media, CRO signals, schema, and interpreted Elementor structure. Includes a site-wide hierarchy, anchor-text frequency, orphan detection, an internal-link relationship graph with per-page metrics, **and (V2.3) a Weighted Internal Linking Engine: strategic page classification, PageRank-like internal authority, composite relationship scores, cluster signals, and relationship-intelligence flags**.
+A WordPress plugin that exports **AI-ready structured website intelligence** as a single downloadable ZIP of JSON files. Not a raw WordPress dump — every page is reduced to a canonical record covering SEO, content hierarchy, FAQs, links (with cross-references), media, CRO signals, schema, and interpreted Elementor structure. Includes a site-wide hierarchy, anchor-text frequency, orphan detection, an internal-link relationship graph with per-page metrics, a Weighted Internal Linking Engine, **and (V2.4) compact AI-analysis-ready summary files designed for LLM consumption (no Elementor / no raw text bloat)**.
 
 ## What it produces
 
@@ -30,6 +30,12 @@ weighted-link-graph.json     # edges with computed authority-propagation weights
 strategic-pages.json         # page → {money, support, article, service, location, product, category, homepage, other}
 cluster-signals.json         # weakly-connected components, main vs isolated clusters
 intelligence-flags.json      # overlinked, under-supported important, high-out/weak-in
+
+# V2.4 AI analysis layer (compact, LLM-friendly)
+ai-site-summary.json         # totals, distributions, top authorities/hubs, issue counts
+ai-page-summaries.json       # slim per-page records (no Elementor, no raw text) + issue flags
+ai-linking-summary.json      # weak money pages, orphans/near-orphans, dup metadata, linking opportunities
+ai-cluster-summary.json      # main vs isolated clusters with recommended bridge sources
 ```
 
 ### `PageRecord` shape
