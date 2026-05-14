@@ -3,11 +3,12 @@
         xsi:noNamespaceSchemaLocation="urn:magento:framework:Acl/etc/acl.xsd">
     <acl>
         <resources>
-            <resource id="Magento_Backend::admin">
-                <resource id="Magento_Backend::system">
-                    <resource id="Magento_Backend::system_tools">
+            <resource id="Magento_Backend::admin" title="Admin">
+                <resource id="Magento_Backend::system" title="System">
+                    <resource id="Magento_Backend::system_tools" title="Tools">
                         <resource id="TSE_MagentoExporter::tse_export"
                                   title="TSE Magento Exporter"
+                                  translate="title"
                                   sortOrder="50"/>
                     </resource>
                 </resource>
