@@ -1,6 +1,40 @@
-# TSE Site Exporter — V2.4
+# TSE Site Exporter — V2.5
 
-A WordPress plugin that exports **AI-ready structured website intelligence** as a single downloadable ZIP of JSON files. Not a raw WordPress dump — every page is reduced to a canonical record covering SEO, content hierarchy, FAQs, links (with cross-references), media, CRO signals, schema, and interpreted Elementor structure. Includes a site-wide hierarchy, anchor-text frequency, orphan detection, an internal-link relationship graph with per-page metrics, a Weighted Internal Linking Engine, **and (V2.4) compact AI-analysis-ready summary files designed for LLM consumption (no Elementor / no raw text bloat)**.
+A WordPress plugin that exports **AI-ready structured website intelligence** as a single downloadable ZIP of JSON files. Not a raw WordPress dump — every page is reduced to a canonical record covering SEO, content hierarchy, FAQs, links (with cross-references), media, CRO signals, schema, and interpreted Elementor structure. Includes a site-wide hierarchy, anchor-text frequency, orphan detection, an internal-link relationship graph with per-page metrics, a Weighted Internal Linking Engine, compact AI-analysis-ready summary files, **and (V2.5) an AI Analysis Execution Layer that calls OpenAI / Anthropic / Gemini directly from PHP using user-supplied keys to produce structured findings**.
+
+## AI Analysis (V2.5)
+
+A new section in the admin page lets you configure provider keys/models and click **Run AI Analysis** to download a ZIP of structured LLM findings:
+
+```
+ai-recommendations.json           # prioritised action plan
+ai-internal-link-opportunities.json   # refined link suggestions with anchors
+ai-cluster-analysis.json          # per-cluster findings + bridge suggestions
+ai-content-gap-signals.json       # missing support / cannibalisation / metadata
+```
+
+Every output uses the same schema:
+```
+{ "items": [
+    { "priority": "high|medium|low",
+      "issue": "<short>",
+      "affected_pages": ["url"],
+      "recommendation": "<short specific action>",
+      "confidence_score": 0.0..1.0,
+      ... optional extras per file ... }
+] }
+```
+
+**Keys** are resolved in this order (constants first, UI second):
+- `TSE_OPENAI_KEY` / `TSE_ANTHROPIC_KEY` / `TSE_GEMINI_KEY` defined in `wp-config.php`, **or**
+- masked UI fields on **Tools → TSE Site Exporter** (stored in `wp_options.tse_ai_settings`).
+
+**Models** (override via `TSE_OPENAI_MODEL` / `TSE_ANTHROPIC_MODEL` / `TSE_GEMINI_MODEL` or UI):
+- OpenAI: `gpt-5.2`
+- Anthropic: `claude-sonnet-4-5`
+- Gemini: `gemini-3-pro`
+
+Only the compact `ai-*.json` summary slices are sent to the LLM — no Elementor JSON, no raw HTML, no `plain_text`.
 
 ## What it produces
 

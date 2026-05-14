@@ -43,11 +43,21 @@ Build a WordPress plugin "TSE Site Exporter" that produces an AI-ready structure
 - Per-page deterministic issue flags: missing_meta_title/description, short_meta_*, weak_h1, thin_content, no_incoming_links, near_orphan, no_outgoing_internal_links, low_authority_for_<type>_page, generic_anchors_only_inbound.
 - Token-economical: avg ~850 bytes per page summary on the smoke fixture.
 
+### V2.5.0 — AI Analysis Execution Layer (2026-02)
+- Modular PHP provider abstraction in `ai_provider.php` — `TSE_AI_Provider_Base` + three concrete providers:
+  - OpenAI → `POST /v1/chat/completions` with `response_format: json_object`. Default model `gpt-5.2`.
+  - Anthropic → `POST /v1/messages` with `anthropic-version: 2023-06-01`. Default model `claude-sonnet-4-5`.
+  - Gemini → `POST /v1beta/models/{model}:generateContent` with `response_mime_type: application/json`. Default model `gemini-3-pro`.
+- Settings (`ai_settings.php`): keys + models resolved constant-first, then `wp_options.tse_ai_settings`. UI fields are password-masked; PHP constants override.
+- Runner (`ai_runner.php`) consumes the V2.4 ai-*.json files (no Elementor / no raw text sent to LLM) and dispatches 4 targeted prompts. Each output adheres to `{items:[{priority,issue,affected_pages,recommendation,confidence_score,...}]}`. Hard caps + "no prose" directives in every system prompt.
+- New admin page section "AI Analysis (V2.5)" with provider/key/model fields + `Run AI Analysis` button. Two new handlers (`admin_post_tse_site_exporter_ai_save`, `admin_post_tse_site_exporter_ai_run`). Streams a ZIP of structured analysis JSON files.
+- Error handling: HTTP non-2xx + JSON parse failures bubble up as `WP_Error` and are wrapped into `{status:"error", error:"...", items:[]}` so the analysis ZIP is always produced.
+
 ## Backlog / Roadmap
-- **P1** Wire AI summary into actual LLM (e.g. Emergent Universal Key — Claude/GPT/Gemini) to generate human-readable audits and prioritised recommendations.
 - **P1** Local SEO analysis — NAP consistency, LocalBusiness completeness, geo-signal scoring.
 - **P2** Website replication / asset deployment workflows.
-- **P2** Dashboard / UI (post-backend phases).
+- **P2** Cheaper-tier model presets (GPT-4o-mini, Claude Haiku 4.5, Gemini 3 Flash) + per-prompt model overrides.
+- **P2** Optional dashboard / chat interface.
 
 ## Testing
 - Manual PHP CLI smoke tests under `/app/smoke_*.php` (WP function stubs + assertions). Run with `php /app/smoke_authority.php` etc.
