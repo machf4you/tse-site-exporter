@@ -54,10 +54,40 @@ Build a WordPress plugin "TSE Site Exporter" that produces an AI-ready structure
 - Error handling: HTTP non-2xx + JSON parse failures bubble up as `WP_Error` and are wrapped into `{status:"error", error:"...", items:[]}` so the analysis ZIP is always produced.
 
 ## Backlog / Roadmap
-- **P1** Local SEO analysis — NAP consistency, LocalBusiness completeness, geo-signal scoring.
+- **P1** Local SEO analysis — NAP consistency, LocalBusiness completeness, geo-signal scoring (WordPress side).
 - **P2** Website replication / asset deployment workflows.
 - **P2** Cheaper-tier model presets (GPT-4o-mini, Claude Haiku 4.5, Gemini 3 Flash) + per-prompt model overrides.
 - **P2** Optional dashboard / chat interface.
+
+---
+
+# TSE Magento Exporter — Separate Product
+
+A Magento 2 module that mirrors the WordPress exporter's intent for ecommerce stores. Same backend-only philosophy, same structured-JSON output, but built around the Magento 2 multi-store hierarchy (websites → groups → views).
+
+## Implemented (V1.0.0, 2026-02)
+- 7 PHP namespaces under `TSE\MagentoExporter\Model\`:
+  - `StoreContextResolver` — websites/groups/store-views via `WebsiteRepositoryInterface` / `GroupRepositoryInterface` / `StoreRepositoryInterface`.
+  - `CategoryExtractor` — normalised categories with path, children, store-scoped fields.
+  - `ProductExtractor` — paginated (200/page), stock-aware, attribute-aware, image-aware. Carries `website_ids` + `store_ids`.
+  - `CmsPageExtractor` — store-scoped URLs.
+  - `RelationshipBuilder` — product → product edges (related/upsell/crosssell), category parent → child graph, product → category edges.
+  - `CrossStoreMapper` — shared SKUs across storefronts, diverging categories, cross-store dangling references.
+  - `Exporter` — orchestrator. Uses `Magento\Store\Model\App\Emulation` per store view so URLs/metadata/status reflect that store.
+  - `ZipBuilder` — bundles to a single ZIP with per-store sub-directories.
+- Admin page at System → Tools → TSE Magento Exporter (ACL-protected) with one "Download" button.
+- Multi-store-aware bundle for HF / CBS / MT etc:
+  ```
+  manifest.json, stores.json, product-store-map.json, category-store-diff.json,
+  relationship-cross-store-flags.json,
+  stores/<code>/{products, categories, cms-pages, product-relationships, category-graph, product-category-edges}.json
+  ```
+- Tested via `/app/smoke_magento.php` — 54/54 assertions pass with stubbed Magento interfaces (hierarchy, per-store divergence, shared SKU detection, cross-store relationship dangling, emulation lifecycle, ZIP packaging).
+
+## Magento Roadmap
+- **V2** AI-ready summary slices (per-store + cross-store roll-ups), mirroring the WordPress V2.4 layer.
+- **V2** AI analysis layer (provider abstraction, recommendations, internal linking, cannibalisation — reuse WordPress patterns).
+- **V3** Static HTML reports identical in shape to the WordPress V2.7 reports.
 
 ## Testing
 - Manual PHP CLI smoke tests under `/app/smoke_*.php` (WP function stubs + assertions). Run with `php /app/smoke_authority.php` etc.

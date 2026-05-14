@@ -1,0 +1,50 @@
+<?php
+/** @var \TSE\MagentoExporter\Block\Adminhtml\Form $block */
+$hierarchy = $block->getStoreHierarchy();
+?>
+<div class="admin__data-grid-outer-wrap" style="max-width:920px">
+    <div style="background:#fff;border:1px solid #e3e3e3;border-radius:4px;padding:24px;margin-top:16px">
+        <h2 style="margin-top:0">TSE Magento Exporter</h2>
+        <p>
+            Exports a multi-store-aware ZIP of structured JSON files: products, categories, CMS pages,
+            product relationships, category graph, plus cross-store maps. One sub-directory per store view.
+        </p>
+
+        <h3 style="margin-top:24px">Detected store hierarchy</h3>
+        <p>
+            <strong><?= (int) $hierarchy['totals']['websites'] ?></strong> website(s),
+            <strong><?= (int) $hierarchy['totals']['groups'] ?></strong> store group(s),
+            <strong><?= (int) $hierarchy['totals']['stores'] ?></strong> store view(s).
+        </p>
+        <table class="data-grid" style="width:100%;border-collapse:collapse;margin-top:8px">
+            <thead>
+                <tr style="background:#f5f5f5">
+                    <th style="text-align:left;padding:8px;border-bottom:1px solid #ddd">Store View</th>
+                    <th style="text-align:left;padding:8px;border-bottom:1px solid #ddd">Code</th>
+                    <th style="text-align:left;padding:8px;border-bottom:1px solid #ddd">Website</th>
+                    <th style="text-align:left;padding:8px;border-bottom:1px solid #ddd">Group</th>
+                    <th style="text-align:left;padding:8px;border-bottom:1px solid #ddd">Base URL</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($hierarchy['stores'] as $s): ?>
+                <tr>
+                    <td style="padding:8px;border-bottom:1px solid #eee"><?= $block->escapeHtml($s['name']) ?></td>
+                    <td style="padding:8px;border-bottom:1px solid #eee"><code><?= $block->escapeHtml($s['code']) ?></code></td>
+                    <td style="padding:8px;border-bottom:1px solid #eee"><?= (int) $s['website_id'] ?></td>
+                    <td style="padding:8px;border-bottom:1px solid #eee"><?= (int) $s['group_id'] ?></td>
+                    <td style="padding:8px;border-bottom:1px solid #eee"><a href="<?= $block->escapeUrl($s['base_url']) ?>" target="_blank"><?= $block->escapeHtml($s['base_url']) ?></a></td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+
+        <p style="margin-top:24px">
+            <a href="<?= $block->escapeUrl($block->getDownloadUrl()) ?>"
+               class="action-default scalable"
+               style="display:inline-block;padding:10px 20px;background:#007bdb;color:#fff;border-radius:3px;text-decoration:none;font-weight:600">
+                Download multi-store export ZIP
+            </a>
+        </p>
+    </div>
+</div>

@@ -1,0 +1,22 @@
+{
+    "name": "tse/magento-exporter",
+    "description": "TSE Magento Exporter — structured SEO and ecommerce data extraction.",
+    "type": "magento2-module",
+    "version": "1.0.0",
+    "license": "proprietary",
+    "require": {
+        "php": ">=7.4",
+        "magento/framework": "*",
+        "magento/module-catalog": "*",
+        "magento/module-cms": "*",
+        "magento/module-backend": "*",
+        "magento/module-store": "*",
+        "magento/module-catalog-inventory": "*"
+    },
+    "autoload": {
+        "files": ["registration.php"],
+        "psr-4": {
+            "TSE\\MagentoExporter\\": ""
+        }
+    }
+}
