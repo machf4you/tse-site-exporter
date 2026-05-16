@@ -53,6 +53,21 @@ Build a WordPress plugin "TSE Site Exporter" that produces an AI-ready structure
 - New admin page section "AI Analysis (V2.5)" with provider/key/model fields + `Run AI Analysis` button. Two new handlers (`admin_post_tse_site_exporter_ai_save`, `admin_post_tse_site_exporter_ai_run`). Streams a ZIP of structured analysis JSON files.
 - Error handling: HTTP non-2xx + JSON parse failures bubble up as `WP_Error` and are wrapped into `{status:"error", error:"...", items:[]}` so the analysis ZIP is always produced.
 
+### V2.6.0 / V2.7.0 — HTML report readability pass (2026-02 → 2026-04)
+- Wider layout (~1600px), sticky table headers, collapsible affected-pages, recommendations grouped by type, estimated SEO impact column, priority order block, export summary strip.
+
+### V2.8.0 — Operational dashboard (2026-05)
+- `includes/dashboard.php` — lightweight in-admin operational layer (no React, no charts, no SaaS chrome).
+- Persists every export and AI run in `wp_options.tse_site_exporter_runs` (capped at 50, auto-prunes old ZIPs from disk).
+- Stops unlinking the produced ZIP so it can be re-served. Files live in `wp-content/uploads/tse-site-exporter/`.
+- Admin page additions under Tools → TSE Site Exporter:
+  - **Export / Analysis history** table — date/time, type, provider, model, mode, success/failure, ZIP download, Delete.
+  - **Recent Reports** panels grouped by *Exports / AI Reports / Internal Link Reports / Cluster Reports / Raw JSON*.
+  - **In-admin viewer** — HTML reports open inside an iframe panel (no manual ZIP browsing); JSON streams inline.
+- New admin-post handlers: `tse_site_exporter_serve` (file inside ZIP, allow-listed against the run's stored manifest), `tse_site_exporter_download_zip`, `tse_site_exporter_delete_run`. All nonce + `manage_options` protected.
+- Failure paths now also write a history entry so unsuccessful runs remain visible.
+- Tested via `/app/smoke_dashboard.php` — 29/29 assertions pass (categorisation, history lifecycle, pruning at TSE_RUNS_MAX, URL helpers).
+
 ## Backlog / Roadmap
 - **P1** Local SEO analysis — NAP consistency, LocalBusiness completeness, geo-signal scoring (WordPress side).
 - **P2** Website replication / asset deployment workflows.

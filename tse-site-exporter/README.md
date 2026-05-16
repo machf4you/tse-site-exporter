@@ -1,6 +1,19 @@
-# TSE Site Exporter — V2.5
+# TSE Site Exporter — V2.8
 
-A WordPress plugin that exports **AI-ready structured website intelligence** as a single downloadable ZIP of JSON files. Not a raw WordPress dump — every page is reduced to a canonical record covering SEO, content hierarchy, FAQs, links (with cross-references), media, CRO signals, schema, and interpreted Elementor structure. Includes a site-wide hierarchy, anchor-text frequency, orphan detection, an internal-link relationship graph with per-page metrics, a Weighted Internal Linking Engine, compact AI-analysis-ready summary files, **and (V2.5) an AI Analysis Execution Layer that calls OpenAI / Anthropic / Gemini directly from PHP using user-supplied keys to produce structured findings**.
+A WordPress plugin that exports **AI-ready structured website intelligence** as a single downloadable ZIP of JSON files. Not a raw WordPress dump — every page is reduced to a canonical record covering SEO, content hierarchy, FAQs, links (with cross-references), media, CRO signals, schema, and interpreted Elementor structure. Includes a site-wide hierarchy, anchor-text frequency, orphan detection, an internal-link relationship graph with per-page metrics, a Weighted Internal Linking Engine, compact AI-analysis-ready summary files, **(V2.5) an AI Analysis Execution Layer that calls OpenAI / Anthropic / Gemini directly from PHP using user-supplied keys**, and **(V2.8) a lightweight operational dashboard with run history, organised report panels and an in-admin iframe viewer for HTML reports**.
+
+## Operational Dashboard (V2.8)
+
+Under **Tools → TSE Site Exporter** a dashboard block is added at the bottom of the page:
+
+- **Export / Analysis history** — every export and AI run is logged with date/time, provider, model, mode, status (success / failure). Capped at 50 entries; the underlying ZIPs persist on disk so reports remain reopenable after refresh.
+- **Recent Reports** — grouped panels for the latest export and latest AI run:
+  - *Exports* → Raw JSON
+  - *AI Analysis* → AI Reports, Internal Link Reports, Cluster Reports, Raw JSON, plus a one-click ZIP download
+- **In-admin viewer** — HTML reports open inside wp-admin in a clean iframe panel (no manual ZIP browsing). JSON files open inline in a new tab.
+- **Delete** — one-click per-run removal (entry + its ZIP).
+
+No React, no charts, no SaaS chrome — just pure WP admin markup backed by a single `wp_options` row (`tse_site_exporter_runs`) and the existing `wp-content/uploads/tse-site-exporter/` directory.
 
 ## AI Analysis (V2.5)
 

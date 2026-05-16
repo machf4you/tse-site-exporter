@@ -2,7 +2,7 @@
 /**
  * Plugin Name: TSE Site Exporter
  * Description: Exports AI-ready structured website intelligence (SEO, content hierarchy, internal/external links, media, CRO signals, full structured-data audit, interpreted Elementor structure, page classification, site hierarchy, and a full internal-link relationship graph with per-page metrics, orphan/weak detection, classification flow and top hubs/authorities) as a downloadable ZIP of JSON files.
- * Version:     2.7.0
+ * Version:     2.8.0
  * Author:      TSE
  * License:     GPL-2.0-or-later
  * Text Domain: tse-site-exporter
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'TSE_SITE_EXPORTER_VERSION', '2.7.0' );
+define( 'TSE_SITE_EXPORTER_VERSION', '2.8.0' );
 define( 'TSE_SITE_EXPORTER_NONCE',   'tse_site_exporter_export' );
 define( 'TSE_SITE_EXPORTER_AI_NONCE','tse_site_exporter_ai' );
 define( 'TSE_SITE_EXPORTER_PATH',    plugin_dir_path( __FILE__ ) );
@@ -27,6 +27,7 @@ require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_settings.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_provider.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_runner.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_report.php';
+require_once TSE_SITE_EXPORTER_PATH . 'includes/dashboard.php';
 
 /**
  * Admin menu under Tools.
@@ -48,6 +49,18 @@ add_action( 'admin_menu', 'tse_site_exporter_register_menu' );
 function tse_site_exporter_render_admin_page() {
     if ( ! current_user_can( 'manage_options' ) ) {
         wp_die( esc_html__( 'You do not have permission to access this page.', 'tse-site-exporter' ) );
+    }
+
+    // Internal viewer: open a single HTML report (from a stored run) inside
+    // an iframe panel so users don't have to manually browse the ZIP.
+    if ( isset( $_GET['view'] ) && 'run' === $_GET['view'] ) {
+        $run_id = isset( $_GET['run'] )  ? sanitize_text_field( wp_unslash( $_GET['run'] ) )  : '';
+        $file   = isset( $_GET['file'] ) ? sanitize_text_field( wp_unslash( $_GET['file'] ) ) : '';
+        echo '<div class="wrap">';
+        echo '<h1>' . esc_html__( 'TSE Site Exporter — Report viewer', 'tse-site-exporter' ) . '</h1>';
+        tse_dashboard_render_viewer( $run_id, $file );
+        echo '</div>';
+        return;
     }
 
     $action_url = admin_url( 'admin-post.php' );
@@ -113,6 +126,8 @@ function tse_site_exporter_render_admin_page() {
         </form>
 
         <?php tse_site_exporter_render_ai_section(); ?>
+
+        <?php tse_dashboard_render(); ?>
     </div>
     <?php
 }
@@ -259,8 +274,21 @@ function tse_site_exporter_handle_export() {
         'include_slices' => ! empty( $_POST['tse_include_slices'] ),
         'quick_cap'      => 500,
     );
+    $started_at = gmdate( 'c' );
 
-    $bundle = tse_exporter_run( $opts );
+    try {
+        $bundle = tse_exporter_run( $opts );
+    } catch ( \Throwable $e ) {
+        tse_dashboard_record_run( array(
+            'type'        => 'export',
+            'status'      => 'failure',
+            'message'     => $e->getMessage(),
+            'started_at'  => $started_at,
+            'finished_at' => gmdate( 'c' ),
+            'export_type' => $opts['mode'],
+        ) );
+        wp_die( esc_html__( 'Export failed: ', 'tse-site-exporter' ) . esc_html( $e->getMessage() ) );
+    }
 
     $upload_dir = wp_upload_dir();
     $tmp_dir    = trailingslashit( $upload_dir['basedir'] ) . 'tse-site-exporter';
@@ -278,6 +306,14 @@ function tse_site_exporter_handle_export() {
 
     $zip = new ZipArchive();
     if ( true !== $zip->open( $zip_path, ZipArchive::CREATE | ZipArchive::OVERWRITE ) ) {
+        tse_dashboard_record_run( array(
+            'type'        => 'export',
+            'status'      => 'failure',
+            'message'     => 'Could not create ZIP archive.',
+            'started_at'  => $started_at,
+            'finished_at' => gmdate( 'c' ),
+            'export_type' => $opts['mode'],
+        ) );
         wp_die( esc_html__( 'Could not create ZIP archive.', 'tse-site-exporter' ) );
     }
 
@@ -290,6 +326,19 @@ function tse_site_exporter_handle_export() {
     }
     $zip->close();
 
+    // Persist run in history. ZIP stays on disk so the dashboard can re-serve it.
+    tse_dashboard_record_run( array(
+        'type'        => 'export',
+        'status'      => 'success',
+        'started_at'  => $started_at,
+        'finished_at' => gmdate( 'c' ),
+        'export_type' => $opts['mode'],
+        'zip_path'    => $zip_path,
+        'zip_name'    => $base_name . '.zip',
+        'size'        => file_exists( $zip_path ) ? filesize( $zip_path ) : 0,
+        'files'       => array_keys( $bundle ),
+    ) );
+
     while ( ob_get_level() ) {
         ob_end_clean();
     }
@@ -300,7 +349,6 @@ function tse_site_exporter_handle_export() {
     header( 'Content-Length: ' . filesize( $zip_path ) );
     header( 'X-Content-Type-Options: nosniff' );
     readfile( $zip_path );
-    @unlink( $zip_path );
     exit;
 }
 add_action( 'admin_post_tse_site_exporter_export', 'tse_site_exporter_handle_export' );
@@ -340,14 +388,36 @@ function tse_site_exporter_handle_ai_run() {
     }
 
     $settings = tse_ai_get_settings();
+    $providers_labels = tse_ai_supported_providers();
     $provider = tse_ai_get_provider( $settings['provider'] );
     if ( is_wp_error( $provider ) ) {
+        tse_dashboard_record_run( array(
+            'type'        => 'ai',
+            'status'      => 'failure',
+            'message'     => $provider->get_error_message(),
+            'started_at'  => gmdate( 'c' ),
+            'finished_at' => gmdate( 'c' ),
+            'provider'    => $settings['provider'],
+            'provider_label' => isset( $providers_labels[ $settings['provider'] ] ) ? $providers_labels[ $settings['provider'] ] : $settings['provider'],
+        ) );
         wp_die( esc_html( $provider->get_error_message() ) );
     }
     $key_check = $provider->get_key();
     if ( is_wp_error( $key_check ) ) {
+        tse_dashboard_record_run( array(
+            'type'        => 'ai',
+            'status'      => 'failure',
+            'message'     => $key_check->get_error_message(),
+            'started_at'  => gmdate( 'c' ),
+            'finished_at' => gmdate( 'c' ),
+            'provider'    => $provider->slug(),
+            'provider_label' => isset( $providers_labels[ $provider->slug() ] ) ? $providers_labels[ $provider->slug() ] : $provider->slug(),
+            'model'       => $provider->get_model(),
+        ) );
         wp_die( esc_html( $key_check->get_error_message() ) );
     }
+
+    $started_at = gmdate( 'c' );
 
     @set_time_limit( 0 );
     @ini_set( 'memory_limit', '512M' );
@@ -364,6 +434,16 @@ function tse_site_exporter_handle_ai_run() {
     $required = array( 'ai-site-summary.json', 'ai-page-summaries.json', 'ai-linking-summary.json', 'ai-cluster-summary.json' );
     foreach ( $required as $f ) {
         if ( ! isset( $bundle[ $f ] ) ) {
+            tse_dashboard_record_run( array(
+                'type'           => 'ai',
+                'status'         => 'failure',
+                'message'        => sprintf( 'AI Analysis cannot run: %s missing from export bundle.', $f ),
+                'started_at'     => $started_at,
+                'finished_at'    => gmdate( 'c' ),
+                'provider'       => $provider->slug(),
+                'provider_label' => isset( $providers_labels[ $provider->slug() ] ) ? $providers_labels[ $provider->slug() ] : $provider->slug(),
+                'model'          => $provider->get_model(),
+            ) );
             wp_die( esc_html( sprintf( 'AI Analysis cannot run: %s missing from export bundle.', $f ) ) );
         }
     }
@@ -402,6 +482,16 @@ function tse_site_exporter_handle_ai_run() {
 
     $zip = new ZipArchive();
     if ( true !== $zip->open( $zip_path, ZipArchive::CREATE | ZipArchive::OVERWRITE ) ) {
+        tse_dashboard_record_run( array(
+            'type'           => 'ai',
+            'status'         => 'failure',
+            'message'        => 'Could not create ZIP archive.',
+            'started_at'     => $started_at,
+            'finished_at'    => gmdate( 'c' ),
+            'provider'       => $provider->slug(),
+            'provider_label' => isset( $providers_labels[ $provider->slug() ] ) ? $providers_labels[ $provider->slug() ] : $provider->slug(),
+            'model'          => $provider->get_model(),
+        ) );
         wp_die( esc_html__( 'Could not create ZIP archive.', 'tse-site-exporter' ) );
     }
     foreach ( $files as $filename => $payload ) {
@@ -416,6 +506,20 @@ function tse_site_exporter_handle_ai_run() {
     }
     $zip->close();
 
+    tse_dashboard_record_run( array(
+        'type'           => 'ai',
+        'status'         => 'success',
+        'started_at'     => $started_at,
+        'finished_at'    => gmdate( 'c' ),
+        'provider'       => $provider->slug(),
+        'provider_label' => isset( $providers_labels[ $provider->slug() ] ) ? $providers_labels[ $provider->slug() ] : $provider->slug(),
+        'model'          => $provider->get_model(),
+        'zip_path'       => $zip_path,
+        'zip_name'       => $base_name . '.zip',
+        'size'           => file_exists( $zip_path ) ? filesize( $zip_path ) : 0,
+        'files'          => array_keys( $files ),
+    ) );
+
     while ( ob_get_level() ) { ob_end_clean(); }
 
     nocache_headers();
@@ -424,7 +528,6 @@ function tse_site_exporter_handle_ai_run() {
     header( 'Content-Length: ' . filesize( $zip_path ) );
     header( 'X-Content-Type-Options: nosniff' );
     readfile( $zip_path );
-    @unlink( $zip_path );
     exit;
 }
 add_action( 'admin_post_tse_site_exporter_ai_run', 'tse_site_exporter_handle_ai_run' );
