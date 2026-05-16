@@ -1,6 +1,39 @@
-# TSE Site Exporter — V2.8
+# TSE Site Exporter — V2.9
 
-A WordPress plugin that exports **AI-ready structured website intelligence** as a single downloadable ZIP of JSON files. Not a raw WordPress dump — every page is reduced to a canonical record covering SEO, content hierarchy, FAQs, links (with cross-references), media, CRO signals, schema, and interpreted Elementor structure. Includes a site-wide hierarchy, anchor-text frequency, orphan detection, an internal-link relationship graph with per-page metrics, a Weighted Internal Linking Engine, compact AI-analysis-ready summary files, **(V2.5) an AI Analysis Execution Layer that calls OpenAI / Anthropic / Gemini directly from PHP using user-supplied keys**, and **(V2.8) a lightweight operational dashboard with run history, organised report panels and an in-admin iframe viewer for HTML reports**.
+A WordPress plugin that exports **AI-ready structured website intelligence** as a single downloadable ZIP of JSON files. Not a raw WordPress dump — every page is reduced to a canonical record covering SEO, content hierarchy, FAQs, links (with cross-references), media, CRO signals, schema, and interpreted Elementor structure. Includes a site-wide hierarchy, anchor-text frequency, orphan detection, an internal-link relationship graph with per-page metrics, a Weighted Internal Linking Engine, compact AI-analysis-ready summary files, **(V2.5) an AI Analysis Execution Layer that calls OpenAI / Anthropic / Gemini directly from PHP using user-supplied keys**, **(V2.8) a lightweight operational dashboard with run history, organised report panels and an in-admin iframe viewer**, and **(V2.9) a Strategic SEO Configuration layer plus implementation-style recommendation wording**.
+
+## Strategic SEO Configuration (V2.9)
+
+Optional admin section under **Tools → TSE Site Exporter → Strategic SEO Configuration**. Declare your business intent across six buckets — one URL or path per line:
+
+- Money Pages
+- Support Pages
+- Location Pages
+- Priority URLs
+- Primary Conversion Pages
+- Protected URLs *(never recommend changing / merging / noindexing)*
+
+The exporter writes two new bundle files:
+
+- `strategy-config.json` — your declared buckets (traceability).
+- `strategy-mismatch.json` — deterministic declared-vs-actual findings such as *"declared money page receives only 2 internal links"* or *"primary conversion page has no inbound link from any money page"*.
+
+Both files feed the AI runner as additional context, and the main HTML report renders a dedicated **Strategy vs reality** section.
+
+## Implementation-style recommendations (V2.9)
+
+System prompts and the internal-link report were rewritten to emit Jira-ticket-style instructions, not SEO essays. Every link suggestion is now rendered as a card:
+
+```
+Add internal link
+FROM:  /blog/bathroom-tips/
+TO:    /bathroom-renovations/
+Suggested anchor: "bathroom renovation services"
+Reason: Readers of the tips article are the exact audience
+        considering booking a renovation.
+```
+
+Banned jargon (`PageRank`, `link equity`, `passes strong authority`, `topical authority signals`) is forbidden at prompt level; the renderer fall back to the structured `source_url` / `target_url` / `suggested_anchor` / `reason` fields when the LLM is concise.
 
 ## Operational Dashboard (V2.8)
 

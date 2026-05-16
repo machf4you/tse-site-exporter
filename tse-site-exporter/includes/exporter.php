@@ -83,6 +83,25 @@ function tse_exporter_run( $opts ) {
         foreach ( $ai['files'] as $name => $payload ) {
             $bundle[ $name ] = $payload;
         }
+
+        // V2.9 Strategic SEO Configuration Layer: compare declared vs actual.
+        if ( function_exists( 'tse_strategy_get' ) ) {
+            $strategy = tse_strategy_get();
+            $bundle['strategy-config.json'] = array(
+                'description'  => 'User-declared business strategy. Empty buckets are omitted from analysis but kept here for traceability.',
+                'generated_at' => gmdate( 'c' ),
+                'buckets'      => $strategy,
+            );
+            $linking_summary = isset( $bundle['ai-linking-summary.json'] ) ? $bundle['ai-linking-summary.json'] : array();
+            $bundle['strategy-mismatch.json'] = tse_strategy_build_mismatch(
+                $strategy, $records, $relationships, $authority,
+                array(
+                    'duplicate_meta_titles'       => isset( $linking_summary['duplicate_meta_titles'] )       ? $linking_summary['duplicate_meta_titles']       : array(),
+                    'duplicate_meta_descriptions' => isset( $linking_summary['duplicate_meta_descriptions'] ) ? $linking_summary['duplicate_meta_descriptions'] : array(),
+                )
+            );
+        }
+
         // Refresh manifest.files to include the new keys.
         if ( isset( $bundle['manifest.json'] ) ) {
             $bundle['manifest.json']['files'] = array_keys( $bundle );

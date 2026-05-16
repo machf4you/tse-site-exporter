@@ -165,6 +165,20 @@ table.tse td a:hover { text-decoration: underline; }
 .error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 14px 16px; border-radius: 8px; font-size: 14px; margin: 12px 0; }
 .error code { background: #fff1f2; padding: 2px 5px; border-radius: 4px; font-size: 12px; }
 .anchor-suggest { display: inline-block; background: #ecfdf5; color: #065f46; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, monospace; }
+.link-card { background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:18px 20px; margin:12px 0; display:grid; grid-template-columns:90px 1fr; gap:10px 16px; }
+.link-card .badge-cell { display:flex; flex-direction:column; gap:8px; align-items:flex-start; }
+.link-card .title { font-size:15px; font-weight:600; color:#111827; margin:0 0 8px; letter-spacing:-0.005em; }
+.link-card .field { display:grid; grid-template-columns:110px 1fr; gap:8px 14px; align-items:start; padding:6px 0; border-top:1px solid #f3f4f6; }
+.link-card .field:first-of-type { border-top:0; }
+.link-card .field .lbl { font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#6b7280; font-weight:600; line-height:1.6; }
+.link-card .field .val { font-size:14px; color:#111827; word-break:break-word; }
+.link-card .field .val a { color:#2563eb; text-decoration:none; }
+.link-card .field .val a:hover { text-decoration:underline; }
+.link-card .field .val.path { font-family:ui-monospace, SFMono-Regular, monospace; font-size:13px; }
+.link-card .field .val.anchor { font-family:ui-monospace, SFMono-Regular, monospace; font-size:13px; background:#ecfdf5; color:#065f46; padding:2px 8px; border-radius:4px; display:inline-block; }
+.link-card .field .val.reason { color:#374151; }
+.strategy-note { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; padding:10px 14px; border-radius:8px; font-size:13px; margin:12px 0; }
+.strategy-note strong { font-weight:600; }
 footer.tse-f { color: #6b7280; font-size: 12px; text-align: center; margin: 32px 0 24px; }
 .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 12px 0 8px; }
 .metrics .m { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 14px; }
@@ -681,6 +695,111 @@ function tse_ai_report_quick_wins( $links, $context, $page_index ) {
 }
 
 /* -------------------------------------------------------------------------
+ * Internal-link card renderer (V2.9.0 — implementation-style).
+ * Each card reads like a Jira ticket: FROM / TO / Anchor / Reason.
+ * ---------------------------------------------------------------------- */
+function tse_ai_report_path_of( $url, $page_index ) {
+    $hit = tse_ai_report_lookup_page( $url, $page_index );
+    return $hit && ! empty( $hit['path'] ) ? $hit['path'] : $url;
+}
+
+function tse_ai_report_link_card( $it, $page_index ) {
+    $pr     = tse_ai_report_priority_class( isset( $it['priority'] ) ? $it['priority'] : '' );
+    $src    = isset( $it['source_url'] ) ? (string) $it['source_url'] : ( isset( $it['affected_pages'][0] ) ? $it['affected_pages'][0] : '' );
+    $tgt    = isset( $it['target_url'] ) ? (string) $it['target_url'] : ( isset( $it['affected_pages'][1] ) ? $it['affected_pages'][1] : '' );
+    $anchor = (string) ( isset( $it['suggested_anchor'] ) ? $it['suggested_anchor'] : '' );
+    $reason = (string) ( isset( $it['reason'] ) ? $it['reason'] : ( isset( $it['recommendation'] ) ? $it['recommendation'] : '' ) );
+    $impact = tse_ai_report_estimated_impact( array_merge( $it, array( 'affected_pages' => array_filter( array( $src, $tgt ) ) ) ), $page_index );
+
+    $src_path = $src ? tse_ai_report_path_of( $src, $page_index ) : '';
+    $tgt_path = $tgt ? tse_ai_report_path_of( $tgt, $page_index ) : '';
+    $src_hit  = $src ? tse_ai_report_lookup_page( $src, $page_index ) : null;
+    $tgt_hit  = $tgt ? tse_ai_report_lookup_page( $tgt, $page_index ) : null;
+
+    $h = '<div class="link-card">';
+    $h .= '<div class="badge-cell">'
+        . tse_ai_report_badge( strtoupper( $pr ), $pr )
+        . tse_ai_report_impact_badge( $impact )
+        . tse_ai_report_confidence_badge( isset( $it['confidence_score'] ) ? $it['confidence_score'] : null )
+        . '</div>';
+
+    $h .= '<div>';
+    $h .= '<p class="title">Add internal link</p>';
+
+    // FROM
+    $h .= '<div class="field"><div class="lbl">From</div><div class="val path">';
+    if ( $src ) {
+        $title = $src_hit && ! empty( $src_hit['title'] ) ? ' <span style="color:#6b7280;font-size:12px;margin-left:6px">— ' . htmlspecialchars( $src_hit['title'], ENT_QUOTES, 'UTF-8' ) . '</span>' : '';
+        $h .= '<a href="' . htmlspecialchars( $src, ENT_QUOTES, 'UTF-8' ) . '" target="_blank" rel="noopener">'
+            . htmlspecialchars( $src_path, ENT_QUOTES, 'UTF-8' ) . '</a>' . $title;
+    } else {
+        $h .= '<span style="color:#9ca3af">—</span>';
+    }
+    $h .= '</div></div>';
+
+    // TO
+    $h .= '<div class="field"><div class="lbl">To</div><div class="val path">';
+    if ( $tgt ) {
+        $title = $tgt_hit && ! empty( $tgt_hit['title'] ) ? ' <span style="color:#6b7280;font-size:12px;margin-left:6px">— ' . htmlspecialchars( $tgt_hit['title'], ENT_QUOTES, 'UTF-8' ) . '</span>' : '';
+        $h .= '<a href="' . htmlspecialchars( $tgt, ENT_QUOTES, 'UTF-8' ) . '" target="_blank" rel="noopener">'
+            . htmlspecialchars( $tgt_path, ENT_QUOTES, 'UTF-8' ) . '</a>' . $title;
+    } else {
+        $h .= '<span style="color:#9ca3af">—</span>';
+    }
+    $h .= '</div></div>';
+
+    // Anchor
+    $h .= '<div class="field"><div class="lbl">Suggested anchor</div><div class="val">';
+    if ( '' !== $anchor ) {
+        $h .= '<span class="anchor">' . htmlspecialchars( '"' . $anchor . '"', ENT_QUOTES, 'UTF-8' ) . '</span>';
+    } else {
+        $h .= '<span style="color:#9ca3af">—</span>';
+    }
+    $h .= '</div></div>';
+
+    // Reason
+    $h .= '<div class="field"><div class="lbl">Reason</div><div class="val reason">'
+        . ( '' !== $reason ? htmlspecialchars( $reason, ENT_QUOTES, 'UTF-8' ) : '<span style="color:#9ca3af">—</span>' )
+        . '</div></div>';
+
+    $h .= '</div></div>';
+    return $h;
+}
+
+/* -------------------------------------------------------------------------
+ * Strategy vs reality block — renders deterministic mismatches from
+ * strategy-mismatch.json when available.
+ * ---------------------------------------------------------------------- */
+function tse_ai_report_strategy_block( $context, $page_index ) {
+    $mismatch = isset( $context['strategy']['mismatch'] ) ? $context['strategy']['mismatch'] : null;
+    $buckets  = isset( $context['strategy']['buckets'] )  ? $context['strategy']['buckets']  : array();
+    $declared_total = 0;
+    foreach ( (array) $buckets as $list ) $declared_total += count( (array) $list );
+    if ( ! $declared_total ) return '';
+
+    $items  = isset( $mismatch['items'] ) ? $mismatch['items'] : array();
+    $totals = isset( $mismatch['totals'] ) ? $mismatch['totals'] : array();
+
+    $h  = tse_ai_report_section_heading( 'Strategy vs reality', count( $items ) );
+    $h .= tse_ai_report_why( 'You declared a business strategy. Here is where the internal architecture currently diverges from it.' );
+
+    $declared = (int) ( isset( $totals['declared_total'] ) ? $totals['declared_total'] : $declared_total );
+    $resolved = (int) ( isset( $totals['declared_resolved'] ) ? $totals['declared_resolved'] : 0 );
+    $unres    = (int) ( isset( $totals['declared_unresolved'] ) ? $totals['declared_unresolved'] : 0 );
+    $h .= '<div class="strategy-note">'
+        . '<strong>' . $declared . '</strong> URL' . ( 1 === $declared ? '' : 's' ) . ' declared across 6 buckets, '
+        . '<strong>' . $resolved . '</strong> matched to live pages, '
+        . '<strong>' . $unres    . '</strong> not found in this export.'
+        . '</div>';
+
+    if ( empty( $items ) ) {
+        $h .= '<div class="empty">Declared strategy matches the observed architecture — no mismatches detected.</div>';
+        return $h;
+    }
+    return $h . tse_ai_report_render_rec_table( tse_ai_report_sort_by_priority( $items ), $page_index );
+}
+
+/* -------------------------------------------------------------------------
  * ai-report.html
  * ---------------------------------------------------------------------- */
 function tse_ai_report_main( $meta, $recs, $gaps, $links, $context, $page_index ) {
@@ -689,6 +808,7 @@ function tse_ai_report_main( $meta, $recs, $gaps, $links, $context, $page_index 
 
     $html .= tse_ai_report_export_metrics( $context, $links );
     $html .= tse_ai_report_executive_summary( $recs, $gaps, $context );
+    $html .= tse_ai_report_strategy_block( $context, $page_index );
     $html .= tse_ai_report_priority_order_block( $recs, $gaps, $page_index );
     $html .= tse_ai_report_quick_wins( $links, $context, $page_index );
 
@@ -725,37 +845,12 @@ function tse_ai_report_links( $meta, $links, $page_index ) {
 
     $items = tse_ai_report_sort_by_priority( isset( $links['items'] ) ? $links['items'] : array() );
     $html .= tse_ai_report_section_heading( 'Refined link opportunities', count( $items ) );
-    $html .= tse_ai_report_why( 'Strong internal linking signals page importance to search engines and AI crawlers.' );
+    $html .= tse_ai_report_why( 'Each card is an implementation-ready instruction. Copy it into your task tracker, edit the source page, paste the anchor.' );
     if ( empty( $items ) ) return $html . '<div class="empty">No internal-link opportunities were returned.</div>' . tse_ai_report_footer();
 
-    $html .= '<table class="tse"><colgroup>'
-          . '<col style="width:80px"><col style="width:34%"><col style="width:180px"><col><col style="width:130px"><col style="width:90px">'
-          . '</colgroup><thead><tr>'
-          . '<th>Priority</th><th>Source → Target</th><th>Suggested anchor</th><th>Reason</th><th>Impact</th><th>Conf.</th>'
-          . '</tr></thead><tbody>';
     foreach ( $items as $it ) {
-        $pr     = tse_ai_report_priority_class( isset( $it['priority'] ) ? $it['priority'] : '' );
-        $src    = isset( $it['source_url'] ) ? (string) $it['source_url'] : ( isset( $it['affected_pages'][0] ) ? $it['affected_pages'][0] : '' );
-        $tgt    = isset( $it['target_url'] ) ? (string) $it['target_url'] : ( isset( $it['affected_pages'][1] ) ? $it['affected_pages'][1] : '' );
-        $anchor = htmlspecialchars( (string) ( isset( $it['suggested_anchor'] ) ? $it['suggested_anchor'] : '' ), ENT_QUOTES, 'UTF-8' );
-        $reason = htmlspecialchars( (string) ( isset( $it['reason'] ) ? $it['reason'] : ( isset( $it['recommendation'] ) ? $it['recommendation'] : '' ) ), ENT_QUOTES, 'UTF-8' );
-        $impact_lvl = tse_ai_report_estimated_impact( array_merge( $it, array( 'affected_pages' => array_filter( array( $src, $tgt ) ) ) ), $page_index );
-
-        $html .= '<tr>'
-              . '<td>' . tse_ai_report_badge( strtoupper( $pr ), $pr ) . '</td>'
-              . '<td>'
-              . '<div style="font-size:11px;color:#6b7280;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:4px">SOURCE</div>'
-              . ( $src ? tse_ai_report_page_cell( $src, $page_index, true ) : '<span style="color:#9ca3af">—</span>' )
-              . '<div style="font-size:11px;color:#6b7280;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;margin:10px 0 4px">TARGET</div>'
-              . ( $tgt ? tse_ai_report_page_cell( $tgt, $page_index, true ) : '<span style="color:#9ca3af">—</span>' )
-              . '</td>'
-              . '<td>' . ( $anchor ? '<span class="anchor-suggest">' . $anchor . '</span>' : '<span style="color:#9ca3af">—</span>' ) . '</td>'
-              . '<td class="recommendation">' . $reason . '</td>'
-              . '<td>' . tse_ai_report_impact_badge( $impact_lvl ) . '</td>'
-              . '<td>' . tse_ai_report_confidence_badge( isset( $it['confidence_score'] ) ? $it['confidence_score'] : null ) . '</td>'
-              . '</tr>';
+        $html .= tse_ai_report_link_card( $it, $page_index );
     }
-    $html .= '</tbody></table>';
     return $html . tse_ai_report_footer();
 }
 

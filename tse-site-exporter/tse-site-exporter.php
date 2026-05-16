@@ -2,7 +2,7 @@
 /**
  * Plugin Name: TSE Site Exporter
  * Description: Exports AI-ready structured website intelligence (SEO, content hierarchy, internal/external links, media, CRO signals, full structured-data audit, interpreted Elementor structure, page classification, site hierarchy, and a full internal-link relationship graph with per-page metrics, orphan/weak detection, classification flow and top hubs/authorities) as a downloadable ZIP of JSON files.
- * Version:     2.8.0
+ * Version:     2.9.0
  * Author:      TSE
  * License:     GPL-2.0-or-later
  * Text Domain: tse-site-exporter
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'TSE_SITE_EXPORTER_VERSION', '2.8.0' );
+define( 'TSE_SITE_EXPORTER_VERSION', '2.9.0' );
 define( 'TSE_SITE_EXPORTER_NONCE',   'tse_site_exporter_export' );
 define( 'TSE_SITE_EXPORTER_AI_NONCE','tse_site_exporter_ai' );
 define( 'TSE_SITE_EXPORTER_PATH',    plugin_dir_path( __FILE__ ) );
@@ -27,6 +27,7 @@ require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_settings.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_provider.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_runner.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_report.php';
+require_once TSE_SITE_EXPORTER_PATH . 'includes/strategy.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/dashboard.php';
 
 /**
@@ -126,6 +127,8 @@ function tse_site_exporter_render_admin_page() {
         </form>
 
         <?php tse_site_exporter_render_ai_section(); ?>
+
+        <?php tse_strategy_render_admin_section(); ?>
 
         <?php tse_dashboard_render(); ?>
     </div>
@@ -449,10 +452,16 @@ function tse_site_exporter_handle_ai_run() {
     }
 
     $inputs = array(
-        'site'    => $bundle['ai-site-summary.json'],
-        'pages'   => $bundle['ai-page-summaries.json'],
-        'linking' => $bundle['ai-linking-summary.json'],
-        'cluster' => $bundle['ai-cluster-summary.json'],
+        'site'     => $bundle['ai-site-summary.json'],
+        'pages'    => $bundle['ai-page-summaries.json'],
+        'linking'  => $bundle['ai-linking-summary.json'],
+        'cluster'  => $bundle['ai-cluster-summary.json'],
+        'strategy' => array(
+            'config'   => isset( $bundle['strategy-config.json'] )   ? $bundle['strategy-config.json']   : null,
+            'mismatch' => isset( $bundle['strategy-mismatch.json'] ) ? $bundle['strategy-mismatch.json'] : null,
+            'buckets'  => isset( $bundle['strategy-config.json']['buckets'] ) ? $bundle['strategy-config.json']['buckets'] : array(),
+            'items'    => isset( $bundle['strategy-mismatch.json']['items'] ) ? $bundle['strategy-mismatch.json']['items'] : array(),
+        ),
     );
 
     $files = tse_ai_runner_execute( $provider, $inputs );

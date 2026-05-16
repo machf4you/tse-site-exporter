@@ -67,14 +67,24 @@ function tse_ai_runner_execute( $provider, $inputs, $opts = array() ) {
  * ---------------------------------------------------------------------- */
 function tse_ai_runner_recommendations( $provider, $inputs, $opts ) {
     $payload = array(
-        'site_summary'   => $inputs['site'],
-        'linking_summary'=> $inputs['linking'],
+        'site_summary'    => $inputs['site'],
+        'linking_summary' => $inputs['linking'],
+        'strategy'        => isset( $inputs['strategy'] ) ? $inputs['strategy'] : null,
     );
-    $system = "You are a senior technical SEO consultant analysing pre-computed site signals (PageRank-like authority, strategic page classification, cluster structure, on-page issue flags). "
+    $system = "You are a senior technical SEO consultant. The data has already been crunched — your job is to produce CLEAR, ACTIONABLE recommendations a junior marketer can execute today. "
             . "Return ONLY a JSON object matching this schema: "
-            . '{"items":[{"priority":"high|medium|low","issue":"<short>","affected_pages":["url"],"recommendation":"<short specific action>","confidence_score":0.0_to_1.0,"category":"linking|authority|metadata|content|cluster|cannibalisation"}]}. '
-            . "Hard rules: max " . (int) $opts['max_items'] . " items; one issue per item; recommendation must be a concrete, executable action; "
-            . "affected_pages must come from the provided data only (do not invent URLs); no prose, no markdown.";
+            . '{"items":[{"priority":"high|medium|low","issue":"<short, plain-English>","affected_pages":["url"],"recommendation":"<imperative action>","confidence_score":0.0_to_1.0,"category":"linking|authority|metadata|content|cluster|cannibalisation|strategy"}]}. '
+            . "WORDING RULES (strict): "
+            . "(1) Start every `recommendation` with an imperative verb (Add, Rewrite, Remove, Merge, Redirect, Set, Replace). "
+            . "(2) Plain English only. BANNED terms: 'authority', 'link juice', 'link equity', 'pass strong', 'topical relevance signals', 'PageRank', 'siloing'. "
+            . "(3) `issue` must describe WHAT is wrong in one short sentence (no jargon). The WHY belongs in `recommendation` as an optional trailing clause beginning with 'so that' / 'because'. "
+            . "(4) For Elementor warnings, write what to change in the template, not 'global template'. "
+            . "(5) For duplicate metadata, name the conflicting pages and tell the user which to rewrite. "
+            . "(6) For orphan pages, suggest a specific source page to link from. "
+            . "(7) For cannibalisation, recommend one of: 'Merge', 'Redirect via 301', or 'Differentiate the intent of'. "
+            . "(8) If the input includes a `strategy.items` block, treat those declared-vs-actual gaps as priority context and reflect them in your output where relevant. "
+            . "Hard rules: max " . (int) $opts['max_items'] . " items; one issue per item; "
+            . "affected_pages must come from the provided data only (do not invent URLs); no prose outside the JSON, no markdown.";
     $resp = $provider->complete( $system, $payload, $opts );
     return tse_ai_runner_wrap( $resp, 'prioritised_recommendations' );
 }
@@ -113,13 +123,21 @@ function tse_ai_runner_link_opportunities( $provider, $inputs, $opts ) {
         'weak_money_pages'           => isset( $inputs['linking']['weak_money_pages'] ) ? $inputs['linking']['weak_money_pages'] : array(),
         'orphan_pages'               => isset( $inputs['linking']['orphan_pages'] ) ? $inputs['linking']['orphan_pages'] : array(),
         'near_orphan_pages'          => isset( $inputs['linking']['near_orphan_pages'] ) ? $inputs['linking']['near_orphan_pages'] : array(),
+        'strategy'                   => isset( $inputs['strategy'] ) ? $inputs['strategy'] : null,
     );
 
-    $system = "You are an internal-linking specialist. Refine the supplied pre-computed link opportunities and add anchor-text suggestions grounded in target page titles. "
+    $system = "You are an internal-linking specialist writing implementation-ready link instructions. "
+            . "Each item must read like a Jira ticket, not an SEO essay. "
             . "Return ONLY a JSON object matching: "
-            . '{"items":[{"priority":"high|medium|low","issue":"<short>","affected_pages":["<source_url>","<target_url>"],"recommendation":"<short action>","confidence_score":0.0_to_1.0,"source_url":"...","target_url":"...","suggested_anchor":"<descriptive anchor>","reason":"<why this lifts target authority>"}]}. '
-            . "Hard rules: max " . (int) $opts['max_items'] . " items; only use URLs present in the input; reject generic anchors (\"click here\", \"read more\"); "
-            . "prioritise lifts to under-supported money/service/location pages; no prose, no markdown.";
+            . '{"items":[{"priority":"high|medium|low","issue":"<short>","affected_pages":["<source_url>","<target_url>"],"recommendation":"<imperative action>","confidence_score":0.0_to_1.0,"source_url":"...","target_url":"...","suggested_anchor":"<descriptive 2-5 word anchor>","reason":"<one-sentence plain-English why>"}]}. '
+            . "WORDING RULES (strict): "
+            . "(1) `recommendation` starts with 'Add an internal link from <source path> to <target path> using anchor \"<anchor>\".'. No jargon. "
+            . "(2) `suggested_anchor` must be 2-5 words, descriptive, derived from the target page title. Reject 'click here', 'read more', 'learn more', 'this page'. "
+            . "(3) `reason` is ONE sentence in plain English explaining the user benefit — e.g. 'this page covers the exact question someone reading the source is likely to ask next'. "
+            . "Do NOT write 'passes authority', 'link equity', 'PageRank', 'topical relevance signals'. "
+            . "(4) If the input includes a declared strategy (`strategy.buckets.money_pages` etc), prioritise lifts towards those declared targets first. "
+            . "Hard rules: max " . (int) $opts['max_items'] . " items; only use URLs present in the input; "
+            . "no prose outside the JSON, no markdown.";
     $resp = $provider->complete( $system, $payload, $opts );
     return tse_ai_runner_wrap( $resp, 'internal_link_opportunities' );
 }
@@ -131,12 +149,17 @@ function tse_ai_runner_cluster_analysis( $provider, $inputs, $opts ) {
     $payload = array(
         'cluster_summary' => $inputs['cluster'],
         'top_authorities' => isset( $inputs['site']['top_authorities'] ) ? $inputs['site']['top_authorities'] : array(),
+        'strategy'        => isset( $inputs['strategy'] ) ? $inputs['strategy'] : null,
     );
-    $system = "You are analysing internal-link clusters (weakly connected components of the site graph). "
-            . "For each meaningful cluster (isolated, under-supported, or main with structural issues), return one or more findings. "
+    $system = "You are analysing internal-link clusters (weakly connected components of the site graph). Write findings as if you were briefing a developer — plain English, one action per finding. "
             . "Return ONLY a JSON object matching: "
-            . '{"items":[{"priority":"high|medium|low","cluster_id":<int>,"issue":"<short>","affected_pages":["url"],"recommendation":"<short action>","confidence_score":0.0_to_1.0,"finding_type":"isolated|under_supported|hub_concentration|fragmented|other"}]}. '
-            . "Hard rules: max " . (int) $opts['max_items'] . " items; affected_pages must be real cluster members; for every isolated cluster, recommend a specific bridge source URL if available; no prose, no markdown.";
+            . '{"items":[{"priority":"high|medium|low","cluster_id":<int>,"issue":"<short, plain-English>","affected_pages":["url"],"recommendation":"<imperative action>","confidence_score":0.0_to_1.0,"finding_type":"isolated|under_supported|hub_concentration|fragmented|other"}]}. '
+            . "WORDING RULES: "
+            . "(1) `recommendation` starts with an imperative verb (Add, Link, Merge, Split, Move). "
+            . "(2) For every isolated cluster, recommend ONE specific bridge: 'Add an internal link from <hub URL> to <cluster member URL> using anchor \"<descriptive anchor>\".'. "
+            . "(3) No jargon — banned: 'authority distribution', 'link equity', 'PageRank flow', 'topical silo'. "
+            . "(4) If the input includes a `strategy` block, isolated clusters that contain declared money / priority pages MUST be priority='high'. "
+            . "Hard rules: max " . (int) $opts['max_items'] . " items; affected_pages must be real cluster members; no prose outside the JSON, no markdown.";
     $resp = $provider->complete( $system, $payload, $opts );
     return tse_ai_runner_wrap( $resp, 'cluster_analysis' );
 }
@@ -169,11 +192,19 @@ function tse_ai_runner_content_gap( $provider, $inputs, $opts ) {
         'strategic_distribution'      => isset( $inputs['site']['distribution']['by_strategic_type'] ) ? $inputs['site']['distribution']['by_strategic_type'] : array(),
     );
 
-    $system = "You are detecting content gaps, missing support content, and cannibalisation/overlap signals from compact page summaries. "
+    $system = "You are detecting content gaps, missing support content, and cannibalisation/overlap signals from compact page summaries. Your output is read by a non-SEO marketer — write in plain English. "
             . "Return ONLY a JSON object matching: "
-            . '{"items":[{"priority":"high|medium|low","issue":"<short>","affected_pages":["url"],"recommendation":"<short action>","confidence_score":0.0_to_1.0,"gap_type":"missing_support|missing_money|cannibalisation|thin_content|metadata_weak|topic_overlap|other"}]}. '
-            . "Hard rules: max " . (int) $opts['max_items'] . " items; only reference URLs present in the input; flag cannibalisation when two URLs share near-identical H1 or meta_title for the same strategic_type; "
-            . "flag missing_support when a strategic_type has high-authority money/service pages but no support pages cover the same topic family; no prose, no markdown.";
+            . '{"items":[{"priority":"high|medium|low","issue":"<short, plain-English>","affected_pages":["url"],"recommendation":"<imperative action>","confidence_score":0.0_to_1.0,"gap_type":"missing_support|missing_money|cannibalisation|thin_content|metadata_weak|topic_overlap|other"}]}. '
+            . "WORDING RULES (strict): "
+            . "(1) For cannibalisation: name the conflicting pages and recommend exactly one of 'Merge', 'Redirect via 301', or 'Differentiate the intent of'. "
+            . "(2) For duplicate metadata: tell the user WHICH page to rewrite (default: the lower-authority / less-trafficked one) and give a one-line suggestion. "
+            . "(3) For thin content: say 'Expand to X words covering Y' — no jargon. "
+            . "(4) For missing_support: recommend a specific support topic to write, naming the money page it would support. "
+            . "(5) BANNED phrases: 'topical authority', 'link equity', 'thin from a keyword perspective', 'optimise for'. "
+            . "(6) If the input includes a `strategy` block, items affecting declared money / priority / primary_conversion / location URLs MUST be marked priority='high'. Protected URLs MUST NOT be recommended for redirect / merge / noindex — recommend changes to the OTHER conflicting page instead. "
+            . "Hard rules: max " . (int) $opts['max_items'] . " items; only reference URLs present in the input; "
+            . "flag cannibalisation when two URLs share near-identical H1 or meta_title for the same strategic_type; "
+            . "flag missing_support when a strategic_type has high-authority money/service pages but no support pages cover the same topic family; no prose outside the JSON, no markdown.";
     $resp = $provider->complete( $system, $payload, $opts );
     return tse_ai_runner_wrap( $resp, 'content_gap_signals' );
 }

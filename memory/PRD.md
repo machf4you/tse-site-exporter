@@ -68,6 +68,22 @@ Build a WordPress plugin "TSE Site Exporter" that produces an AI-ready structure
 - Failure paths now also write a history entry so unsuccessful runs remain visible.
 - Tested via `/app/smoke_dashboard.php` — 29/29 assertions pass (categorisation, history lifecycle, pruning at TSE_RUNS_MAX, URL helpers).
 
+### V2.9.0 — Strategic SEO Configuration + implementation-style wording (2026-05)
+- New `includes/strategy.php`: option-backed declaration of 6 buckets — Money / Support / Location / Priority / Primary Conversion / Protected URLs. Path-level normalisation (case, trailing slash, query / fragment) for matching against page records.
+- Two new bundle files emitted by `tse_exporter_run` when slices are enabled:
+  - `strategy-config.json` — traceable record of the user's declared strategy.
+  - `strategy-mismatch.json` — deterministic findings (under-linked money pages, weak primary conversion inbound, role conflicts, protected-URL metadata clashes, etc.).
+- AI runner now passes the `strategy` block into all 4 prompts and **system prompts were rewritten** for implementation-style wording:
+  - Imperative verbs only (Add / Rewrite / Remove / Merge / Redirect / Set).
+  - Plain English; banned jargon list enforced at prompt level (`PageRank`, `link equity`, `passes strong`, `topical authority signals`, `siloing`).
+  - Internal-link items must include explicit `source_url`, `target_url`, `suggested_anchor` (2–5 words, derived from target title), and a one-sentence `reason`.
+  - Protected URLs may not be recommended for redirect / merge / noindex — wording must target the other party in the conflict.
+- HTML reports:
+  - `internal-link-report.html` rebuilt around an implementation card layout (FROM / TO / Suggested anchor / Reason).
+  - `ai-report.html` gains a new **Strategy vs reality** section that surfaces the deterministic mismatch items, with declared/resolved/unresolved counts.
+- Admin UI: new "Strategic SEO Configuration" panel above the dashboard with 6 textareas; save handler `tse_site_exporter_strategy_save` (nonce + `manage_options`).
+- Tested via `/app/smoke_strategy.php` (28/28) and `/app/smoke_report_v29.php` (14/14): normalisation, parser dedup, 7 mismatch rule types, banned-jargon scan, card-layout rendering, strategy-section gating.
+
 ## Backlog / Roadmap
 - **P1** Local SEO analysis — NAP consistency, LocalBusiness completeness, geo-signal scoring (WordPress side).
 - **P2** Website replication / asset deployment workflows.
