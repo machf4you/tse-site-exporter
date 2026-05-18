@@ -299,8 +299,16 @@ function tse_strategy_build_mismatch( $strategy, $records, $relationships, $auth
 
         $is_strategic = (bool) array_intersect( $buckets, $strategic_buckets );
 
+        // V2.10.3 — Conversion endpoints (declared in primary_conversion_pages
+        // OR detected as strategic_type='conversion') must NEVER be flagged
+        // as under-linked / weak strategic targets, even if a user
+        // accidentally listed them in active_strategic_targets too. They are
+        // CTA destinations, not SEO ranking targets.
+        $is_conversion_endpoint = in_array( 'primary_conversion_pages', $buckets, true )
+            || 'conversion' === ( $s['strategic_type'] ?? '' );
+
         // ----- 1. Declared strategic target is under-linked.
-        if ( $is_strategic && $s['incoming_link_count'] <= 2 ) {
+        if ( $is_strategic && ! $is_conversion_endpoint && $s['incoming_link_count'] <= 2 ) {
             $items[] = array(
                 'priority'         => 'high',
                 'issue'            => 'Declared strategic target is under-linked',
@@ -318,7 +326,7 @@ function tse_strategy_build_mismatch( $strategy, $records, $relationships, $auth
         }
 
         // ----- 2. Declared strategic target below median authority.
-        if ( $is_strategic && $s['internal_authority_score'] < $median_auth ) {
+        if ( $is_strategic && ! $is_conversion_endpoint && $s['internal_authority_score'] < $median_auth ) {
             $items[] = array(
                 'priority'         => 'medium',
                 'issue'            => 'Declared strategic target sits below the site-wide median support level',

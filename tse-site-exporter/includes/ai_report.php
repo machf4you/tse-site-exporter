@@ -214,10 +214,23 @@ details.metric-card > .body .pl ul { margin:6px 0 0; padding-left:18px; }
 details.metric-card > .body .pl li { margin:4px 0; line-height:1.4; }
 details.metric-card > .body .pl li code { background:#f3f4f6; padding:1px 6px; border-radius:4px; font-size:12px; }
 footer.tse-f { color: #6b7280; font-size: 12px; text-align: center; margin: 32px 0 24px; }
-.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 12px 0 8px; }
-.metrics .m { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 14px; }
-.metrics .m .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; font-weight: 600; }
-.metrics .m .num { font-size: 22px; font-weight: 600; color: #111827; font-variant-numeric: tabular-nums; line-height: 1; margin-top: 4px; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+.metrics details.m { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 0; margin: 0; overflow: hidden; }
+.metrics details.m > summary { list-style: none; cursor: default; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.metrics details.m > summary::-webkit-details-marker { display: none; }
+.metrics details.m .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; font-weight: 600; }
+.metrics details.m .num { font-size: 22px; font-weight: 600; color: #111827; font-variant-numeric: tabular-nums; line-height: 1; margin-top: 4px; }
+.metrics details.m .view-pages { margin-top: 8px; align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 10px; border-radius: 6px; background: #f3f4f6; color: #374151; font-size: 11px; font-weight: 600; border: 1px solid #e5e7eb; transition: background .12s, color .12s; }
+.metrics details.m .view-pages::after { content: "›"; font-size: 13px; font-weight: 700; transition: transform .18s; }
+.metrics details.m[open] .view-pages { background: #1f2937; color: #fff; border-color: #1f2937; }
+.metrics details.m[open] .view-pages::after { transform: rotate(90deg); }
+.metrics details.m > .body { padding: 10px 14px 14px; border-top: 1px solid #f3f4f6; background: #fafafa; }
+.metrics details.m > .body .pages { font-size: 13px; }
+.metrics details.m > .body ul.link-pair-list { margin: 0; padding-left: 0; list-style: none; }
+.metrics details.m > .body ul.link-pair-list li { padding: 6px 0; border-top: 1px solid #f3f4f6; font-size: 12px; line-height: 1.5; }
+.metrics details.m > .body ul.link-pair-list li:first-child { border-top: 0; padding-top: 2px; }
+.metrics details.m > .body ul.link-pair-list .arrow { color: #6b7280; padding: 0 2px; }
+.metrics details.m > .body ul.link-pair-list .anchor-suggest { margin-left: 6px; }
 .exec { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 12px 0 8px; }
 .exec .card { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
 .exec .card .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; font-weight: 600; }
@@ -497,7 +510,7 @@ function tse_ai_report_render_rec_table( $rows, $page_index ) {
 /* -------------------------------------------------------------------------
  * Export Summary Metrics
  * ---------------------------------------------------------------------- */
-function tse_ai_report_export_metrics( $context, $links ) {
+function tse_ai_report_export_metrics( $context, $links, $page_index = null ) {
     $pages = isset( $context['pages'] ) ? $context['pages'] : array();
     $total = count( $pages );
     $by_type = array( 'money' => 0, 'service' => 0, 'support' => 0, 'article' => 0, 'location' => 0, 'product' => 0, 'category' => 0, 'homepage' => 0, 'other' => 0 );
@@ -506,30 +519,135 @@ function tse_ai_report_export_metrics( $context, $links ) {
         if ( isset( $by_type[ $t ] ) ) $by_type[ $t ]++;
     }
     $support_total = $by_type['support'] + $by_type['article'];
-    $orphan       = isset( $context['linking']['orphan_pages'] ) ? count( $context['linking']['orphan_pages'] ) : 0;
-    $near_orphan  = isset( $context['linking']['near_orphan_pages'] ) ? count( $context['linking']['near_orphan_pages'] ) : 0;
-    $weak_money   = isset( $context['linking']['weak_money_pages'] ) ? count( $context['linking']['weak_money_pages'] ) : 0;
-    $link_opps    = isset( $links['items'] ) ? count( $links['items'] ) : 0;
 
+    // V2.10.3 — gather drill-down URL lists for each clickable metric.
+    $orphan_list      = tse_ai_metric_urls( $context['linking']['orphan_pages']      ?? array() );
+    $near_orphan_list = tse_ai_metric_urls( $context['linking']['near_orphan_pages'] ?? array() );
+    $weak_money_list  = tse_ai_metric_urls( $context['linking']['weak_money_pages']  ?? array() );
+    $thin_list        = tse_ai_metric_thin_content_urls( $pages );
+    $cannibal_list    = tse_ai_metric_cannibal_urls( $context );
+    $link_opps_list   = tse_ai_metric_link_opp_pairs( $links );
+
+    $orphan      = count( $orphan_list );
+    $near_orphan = count( $near_orphan_list );
+    $weak_money  = count( $weak_money_list );
+    $link_opps   = isset( $links['items'] ) ? count( $links['items'] ) : 0;
+    $thin_count  = count( $thin_list );
+    $cannibal    = count( $cannibal_list );
+
+    // List of (per-card) URL lists. Static counts have null → no drill-down.
     $cards = array(
-        array( 'lbl' => 'Pages analysed',       'num' => $total ),
-        array( 'lbl' => 'Money pages',          'num' => $by_type['money'] ),
-        array( 'lbl' => 'Service pages',        'num' => $by_type['service'] ),
-        array( 'lbl' => 'Location pages',       'num' => $by_type['location'] ),
-        array( 'lbl' => 'Support pages',        'num' => $support_total ),
-        array( 'lbl' => 'Orphan pages',         'num' => $orphan ),
-        array( 'lbl' => 'Near-orphan pages',    'num' => $near_orphan ),
-        array( 'lbl' => 'Weak money pages',     'num' => $weak_money ),
-        array( 'lbl' => 'Link opportunities',   'num' => $link_opps ),
+        array( 'lbl' => 'Pages analysed',       'num' => $total,         'urls' => null ),
+        array( 'lbl' => 'Money pages',          'num' => $by_type['money'],    'urls' => tse_ai_metric_pages_of_type( $pages, 'money' ) ),
+        array( 'lbl' => 'Service pages',        'num' => $by_type['service'],  'urls' => tse_ai_metric_pages_of_type( $pages, 'service' ) ),
+        array( 'lbl' => 'Location pages',       'num' => $by_type['location'], 'urls' => tse_ai_metric_pages_of_type( $pages, 'location' ) ),
+        array( 'lbl' => 'Support pages',        'num' => $support_total,       'urls' => tse_ai_metric_pages_of_type( $pages, array( 'support', 'article' ) ) ),
+        array( 'lbl' => 'Orphan pages',         'num' => $orphan,        'urls' => $orphan_list ),
+        array( 'lbl' => 'Near-orphan pages',    'num' => $near_orphan,   'urls' => $near_orphan_list ),
+        array( 'lbl' => 'Weak money pages',     'num' => $weak_money,    'urls' => $weak_money_list ),
+        array( 'lbl' => 'Thin content signals', 'num' => $thin_count,    'urls' => $thin_list ),
+        array( 'lbl' => 'Cannibalisation risks','num' => $cannibal,      'urls' => $cannibal_list ),
+        array( 'lbl' => 'Link opportunities',   'num' => $link_opps,     'urls' => $link_opps_list, 'pairs' => true ),
     );
-    $html = tse_ai_report_section_heading( 'Export summary metrics', count( $cards ) );
-    $html .= tse_ai_report_why( 'Deterministic site totals from the underlying export.' );
+
+    $html  = tse_ai_report_section_heading( 'Export summary metrics', count( $cards ) );
+    $html .= tse_ai_report_why( 'Top-level totals. Click any metric with a "View Pages" pill to drill into the affected URLs.' );
     $html .= '<div class="metrics">';
     foreach ( $cards as $c ) {
-        $html .= '<div class="m"><div class="lbl">' . htmlspecialchars( $c['lbl'], ENT_QUOTES, 'UTF-8' ) . '</div>'
-              . '<div class="num">' . (int) $c['num'] . '</div></div>';
+        $html .= tse_ai_report_metric_card( $c, $page_index );
     }
     return $html . '</div>';
+}
+
+/* -------------------------------------------------------------------------
+ * V2.10.3 — Drill-down helpers for Export Summary Metrics
+ * ---------------------------------------------------------------------- */
+
+function tse_ai_metric_urls( $items ) {
+    $out = array();
+    foreach ( (array) $items as $p ) {
+        $u = is_array( $p ) ? (string) ( $p['url'] ?? '' ) : (string) $p;
+        if ( '' !== $u ) $out[] = $u;
+    }
+    return array_values( array_unique( $out ) );
+}
+
+function tse_ai_metric_pages_of_type( $pages, $type ) {
+    $types = (array) $type;
+    $out = array();
+    foreach ( (array) $pages as $p ) {
+        if ( in_array( (string) ( $p['strategic_type'] ?? '' ), $types, true ) ) {
+            $u = (string) ( $p['url'] ?? '' );
+            if ( '' !== $u ) $out[] = $u;
+        }
+    }
+    return $out;
+}
+
+function tse_ai_metric_thin_content_urls( $pages ) {
+    $out = array();
+    foreach ( (array) $pages as $p ) {
+        $issues = (array) ( $p['issues'] ?? array() );
+        if ( in_array( 'thin_content', $issues, true ) ) {
+            $u = (string) ( $p['url'] ?? '' );
+            if ( '' !== $u ) $out[] = $u;
+        }
+    }
+    return $out;
+}
+
+function tse_ai_metric_cannibal_urls( $context ) {
+    $set = array();
+    foreach ( (array) ( $context['linking']['duplicate_meta_titles']       ?? array() ) as $d ) foreach ( (array) ( $d['urls'] ?? array() ) as $u ) $set[ $u ] = true;
+    foreach ( (array) ( $context['linking']['duplicate_meta_descriptions'] ?? array() ) as $d ) foreach ( (array) ( $d['urls'] ?? array() ) as $u ) $set[ $u ] = true;
+    return array_keys( $set );
+}
+
+function tse_ai_metric_link_opp_pairs( $links ) {
+    $out = array();
+    foreach ( (array) ( $links['items'] ?? array() ) as $it ) {
+        $src = (string) ( $it['source_url'] ?? ( $it['affected_pages'][0] ?? '' ) );
+        $tgt = (string) ( $it['target_url'] ?? ( $it['affected_pages'][1] ?? '' ) );
+        if ( '' === $src && '' === $tgt ) continue;
+        $out[] = array( 'source' => $src, 'target' => $tgt, 'anchor' => (string) ( $it['suggested_anchor'] ?? '' ) );
+    }
+    return $out;
+}
+
+function tse_ai_report_metric_card( $c, $page_index ) {
+    $has_pairs = ! empty( $c['pairs'] );
+    $list      = $c['urls'] ?? null;
+    $can_drill = is_array( $list ) && count( $list ) > 0;
+
+    $h = '<details class="m"' . ( $can_drill ? '' : ' data-static="1"' ) . '>';
+    $h .= '<summary>';
+    $h .= '<div class="lbl">' . htmlspecialchars( $c['lbl'], ENT_QUOTES, 'UTF-8' ) . '</div>';
+    $h .= '<div class="num">' . (int) $c['num'] . '</div>';
+    if ( $can_drill ) {
+        $h .= '<span class="view-pages" role="button">' . esc_html__( 'View Pages', 'tse-site-exporter' ) . '</span>';
+    }
+    $h .= '</summary>';
+    if ( $can_drill ) {
+        $h .= '<div class="body">';
+        if ( $has_pairs ) {
+            $h .= '<ul class="link-pair-list">';
+            foreach ( $list as $pair ) {
+                $h .= '<li>'
+                    . '<code>' . htmlspecialchars( $pair['source'], ENT_QUOTES, 'UTF-8' ) . '</code>'
+                    . ' <span class="arrow">→</span> '
+                    . '<code>' . htmlspecialchars( $pair['target'], ENT_QUOTES, 'UTF-8' ) . '</code>';
+                if ( '' !== $pair['anchor'] ) {
+                    $h .= ' <span class="anchor-suggest">' . htmlspecialchars( '"' . $pair['anchor'] . '"', ENT_QUOTES, 'UTF-8' ) . '</span>';
+                }
+                $h .= '</li>';
+            }
+            $h .= '</ul>';
+        } else {
+            $h .= '<div class="pages">' . tse_ai_report_pages_cell( $list, $page_index ) . '</div>';
+        }
+        $h .= '</div>';
+    }
+    return $h . '</details>';
 }
 
 /* -------------------------------------------------------------------------
@@ -999,8 +1117,9 @@ function tse_ai_report_main( $meta, $recs, $gaps, $links, $context, $page_index 
         ? tse_issues_normalise( $raw_by_source, $lookup )
         : array();
 
-    $html .= tse_ai_report_export_metrics( $context, $links );
-    $html .= tse_ai_report_executive_summary_v2( $issues, $context, $page_index );
+    $html .= tse_ai_report_export_metrics( $context, $links, $page_index );
+    // V2.10.3 — Executive Summary section removed (duplicated information
+    // already present in the top metrics row + unified action tracks below).
     $html .= tse_ai_report_strategy_block( $context, $page_index );
     $html .= tse_ai_report_unified_tracks( $issues, $page_index );
 

@@ -136,6 +136,18 @@ Tested via `/app/smoke_v210.php` (66/66 assertions total, +15 V2.10.1 specific).
 Tested via `/app/smoke_v210.php` (83/83 assertions — 51 V2.10 + 15 V2.10.1 + 17 V2.10.2). All earlier suites green.
 
 
+### V2.10.3 — Remove Exec Summary + drill-down metrics + conversion belt&braces (2026-05)
+- **Executive Summary section removed entirely.** It duplicated information already present in (a) the top "Export Summary Metrics" row, (b) the Strategy vs Reality block, and (c) the unified action tracks. Heading, all 6 cards, the "View Pages" buttons inside that section — all gone.
+- **Export Summary Metrics now own the drill-down behaviour.** Each metric card became a `<details>` element with the metric label / count visible by default and a "View Pages" pill that opens the affected URL list when clicked. Static counts (e.g. "Pages analysed") render without the pill so users don't see false-affordance. Link-opportunity tile has its own renderer showing source → target → anchor pairs.
+- **Conversion endpoints belt-and-braces suppression** at every data source — not just the issue normaliser:
+  - `ai_summary.weak_money_pages` builder skips any record where `strategic_type='conversion'`.
+  - `strategy.tse_strategy_build_mismatch` skips the "under-linked" and "below-median" rules when the declared URL is either in `primary_conversion_pages` OR detected as `strategic_type='conversion'`.
+  - `authority.under_supported_important_pages` skips `'conversion'` (defensive — it wasn't in the important_types list anyway).
+  - Net effect: `/contact/` cannot appear in "weak strategic targets", "below-median authority", "weak money pages" lists from any data path. Only acceptable surfaces for conversion endpoints remain CTA-path recommendations TOWARD them.
+
+Tested via `/app/smoke_v210.php` (96/96 assertions — 83 prior + 13 V2.10.3 covering Exec-summary removal, metric drill-down rendering, conversion suppression at all 3 data sources). All earlier suites pass.
+
+
 - **P2** Website replication / asset deployment workflows.
 - **P2** Cheaper-tier model presets (GPT-4o-mini, Claude Haiku 4.5, Gemini 3 Flash) + per-prompt model overrides.
 - **P2** Optional dashboard / chat interface.

@@ -261,7 +261,11 @@ function tse_ai_summary_build( $records, $relationships, $authority, $postproces
             );
         }
 
-        if ( in_array( $p['strategic_type'], $important_types, true ) && $p['internal_authority_score'] <= $median_auth ) {
+        // V2.10.3 — Belt-and-braces: conversion endpoints (declared OR detected)
+        // are CTA destinations, not SEO ranking targets. Never include them
+        // in the "weak money / strategic target" list.
+        $is_conversion = ( 'conversion' === ( $p['strategic_type'] ?? '' ) );
+        if ( ! $is_conversion && in_array( $p['strategic_type'], $important_types, true ) && $p['internal_authority_score'] <= $median_auth ) {
             $weak_money_pages[] = array(
                 'url'                       => $p['url'],
                 'strategic_type'            => $p['strategic_type'],

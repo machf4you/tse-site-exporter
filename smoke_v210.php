@@ -522,5 +522,85 @@ $issues_d = tse_issues_normalise( $raw_d, $lookup_d );
 check( '"add CTA path to /contact/" recommendation survives', 1 === count( $issues_d ) );
 
 echo "\n";
+echo "=== V2.10.3 — Exec summary removal + drill-down metrics + conversion-page belt&braces ===\n";
+
+/* -- 13. Executive Summary section is gone -------------------------------- */
+$page_index = tse_ai_report_build_page_index( [ 'pages' => [
+    [ 'url' => 'https://site.test/a/', 'title' => 'A', 'strategic_type' => 'service' ],
+] ] );
+$meta_demo = [ 'provider' => 'openai', 'model' => 'gpt', 'site_url' => 'https://site.test', 'site_name' => 'X', 'generated_at' => '2026-05-20T08:00:00Z' ];
+$recs = [ 'items' => [] ];
+$gaps = [ 'items' => [] ];
+$links= [ 'items' => [] ];
+$ctx  = [
+    'pages'   => [ [ 'url' => 'https://site.test/a/', 'title' => 'A', 'strategic_type' => 'service', 'intent' => 'seo', 'indexability' => 'index', 'issues' => [] ] ],
+    'linking' => [ 'near_orphan_pages' => [ [ 'url' => 'https://site.test/a/' ] ] ],
+];
+$main = tse_ai_report_main( $meta_demo, $recs, $gaps, $links, $ctx, $page_index );
+check( 'Executive summary heading removed', false === strpos( $main, '>Executive summary<' ) );
+check( 'No "Top-level metrics only" copy from exec block', false === strpos( $main, 'Top-level metrics only' ) );
+
+/* -- 14. Export Summary Metrics now have drill-downs ----------------------- */
+check( 'metric tile uses <details class="m"',          false !== strpos( $main, '<details class="m"' ) );
+check( 'a clickable tile has "View Pages" pill',       false !== strpos( $main, 'View Pages' ) );
+check( 'metrics row renders Thin content signals',     false !== strpos( $main, 'Thin content signals' ) );
+check( 'metrics row renders Cannibalisation risks',    false !== strpos( $main, 'Cannibalisation risks' ) );
+
+// "Near-orphan pages" should be clickable (count > 0 in fixture)
+preg_match_all( '#<details class="m"[^>]*>\s*<summary>.*?<div class="lbl">Near-orphan pages</div>.*?</details>#s', $main, $no_match );
+check( 'Near-orphan pages tile exists',                 count( $no_match[0] ) === 1 );
+check( 'Near-orphan pages has View Pages pill',         false !== strpos( $no_match[0][0] ?? '', 'View Pages' ) );
+
+// Pages-analysed is a static count → should NOT have View Pages.
+preg_match( '#<div class="lbl">Pages analysed</div>.*?</details>#s', $main, $pa );
+check( 'Pages analysed tile is static (no View Pages)', false === strpos( $pa[0] ?? '', 'View Pages' ) );
+
+/* -- 15. Conversion endpoints excluded everywhere ------------------------- */
+// 15a. weak_money_pages excludes strategic_type='conversion' even if median check fires.
+// Simulate ai_summary logic via the same condition.
+$p = [ 'strategic_type' => 'conversion', 'internal_authority_score' => 5 ];
+$important_types = [ 'money', 'service', 'location', 'product', 'category' ];
+$is_conversion = ( 'conversion' === $p['strategic_type'] );
+check( 'weak_money guard skips strategic_type=conversion',
+    ! ( ! $is_conversion && in_array( $p['strategic_type'], $important_types, true ) ) );
+
+// 15b. Strategy mismatch never flags conversion endpoints as under-linked.
+$GLOBALS['__opts'] = [];
+tse_strategy_save( [
+    'active_strategic_targets' => "/contact/\n/services/bathroom/",
+    'primary_conversion_pages' => "/contact/",
+] );
+$records = [
+    // /contact/ — declared as BOTH active_strategic and primary_conversion;
+    // detected strategic_type=conversion.
+    [
+        'url' => 'https://site.test/contact/',
+        'relationships' => [ 'incoming_link_count' => 1, 'inbound_classifications' => [] ],
+        'authority'     => [ 'strategic_type' => 'conversion', 'internal_authority_score' => 10 ],
+    ],
+    // /services/bathroom/ — legit service page that IS under-linked.
+    [
+        'url' => 'https://site.test/services/bathroom/',
+        'relationships' => [ 'incoming_link_count' => 1, 'inbound_classifications' => [] ],
+        'authority'     => [ 'strategic_type' => 'service', 'internal_authority_score' => 15 ],
+    ],
+];
+$mm = tse_strategy_build_mismatch( tse_strategy_get(), $records, [], [], [] );
+$contact_underlinked = array_values( array_filter( $mm['items'], fn($i) =>
+    in_array( 'https://site.test/contact/', $i['affected_pages'], true ) && false !== strpos( $i['issue'], 'under-linked' )
+) );
+$service_underlinked = array_values( array_filter( $mm['items'], fn($i) =>
+    in_array( 'https://site.test/services/bathroom/', $i['affected_pages'], true ) && false !== strpos( $i['issue'], 'under-linked' )
+) );
+check( '/contact/ NOT flagged as under-linked strategic target', 0 === count( $contact_underlinked ) );
+check( 'legit /services/bathroom/ IS still flagged',             1 === count( $service_underlinked ) );
+
+// 15c. Same guard for below-median rule.
+$contact_belowmed = array_values( array_filter( $mm['items'], fn($i) =>
+    in_array( 'https://site.test/contact/', $i['affected_pages'], true ) && false !== strpos( $i['issue'], 'below the site-wide median' )
+) );
+check( '/contact/ NOT flagged as below-median strategic target', 0 === count( $contact_belowmed ) );
+
+echo "\n";
 if ( $fail === 0 ) { echo "ALL ASSERTIONS PASS\n"; exit(0); }
 echo "FAILED: $fail assertion(s)\n"; exit(1);

@@ -211,7 +211,7 @@ function tse_authority_build( $records, $url_index, $relationships ) {
             $entry['threshold_p95'] = $p95;
             $overlinked[] = $entry;
         }
-        if ( in_array( $type, $important_types, true ) && $a < $median ) {
+        if ( in_array( $type, $important_types, true ) && 'conversion' !== $type && $a < $median ) {
             $entry['median_authority'] = $median;
             $under_supported[] = $entry;
         }
