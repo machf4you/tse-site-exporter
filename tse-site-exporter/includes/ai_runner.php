@@ -144,7 +144,7 @@ function tse_ai_runner_link_opportunities( $provider, $inputs, $opts ) {
             . "BANNED phrases: 'passes authority', 'link equity', 'PageRank', 'topical authority signals', 'crawl prominence', 'internal equity'. "
             . "(4) `implementation_guidance` should tell the user exactly which paragraph / section of the source page is the natural fit, and remind them to use 'Open in new tab=No' for internal links. "
             . "(5) NEVER recommend a link whose source OR target has `intent` ∈ (utility, legal, conversion, template, gallery), `indexability='noindex'`, or `excluded_from_sitemap=true`. Skip such candidates entirely. "
-            . "(6) If the input includes a declared strategy (`strategy.buckets.active_strategic_targets`, `current_seo_targets`, `growth_targets`, `campaign_pages`, `geo_location_targets`), prioritise lifts towards those declared targets first. "
+            . "(6) If the input includes a declared strategy (`strategy.buckets.active_strategic_targets`, `geo_location_targets`), prioritise lifts towards those declared targets first. "
             . "Hard rules: max " . (int) $opts['max_items'] . " items; only use URLs present in the input; "
             . "no prose outside the JSON, no markdown.";
     $resp = $provider->complete( $system, $payload, $opts );

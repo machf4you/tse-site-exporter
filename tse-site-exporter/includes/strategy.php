@@ -35,9 +35,15 @@ define( 'TSE_STRATEGY_OPTION', 'tse_site_exporter_strategy' );
 define( 'TSE_STRATEGY_NONCE',  'tse_site_exporter_strategy' );
 
 /**
- * The 9 supported buckets (V2.10 — time-bound vocabulary). Order matters:
- * it is the UI render order AND the mismatch reporting order. Old buckets
- * (money_pages, location_pages) are auto-migrated in tse_strategy_get().
+ * The 6 supported buckets (V2.10.1 — simplified, user-confirmed).
+ * Order matters: it is the UI render order AND the mismatch reporting order.
+ *
+ * V2.10 introduced 9 buckets; we explicitly dropped:
+ *   - current_seo_targets
+ *   - growth_targets
+ *   - campaign_pages
+ * Any user data still sitting in those keys is auto-merged into
+ * `active_strategic_targets` by tse_strategy_migrate_legacy().
  */
 function tse_strategy_buckets() {
     return array(
@@ -46,25 +52,15 @@ function tse_strategy_buckets() {
             'help'        => __( 'Pages you are actively prioritising right now. Edit this list as priorities shift — these are not permanent labels.', 'tse-site-exporter' ),
             'placeholder' => "/bathroom-renovations/\n/kitchen-fitting/",
         ),
-        'current_seo_targets'      => array(
-            'label'       => __( 'Current SEO Targets', 'tse-site-exporter' ),
-            'help'        => __( 'Pages targeting specific keywords/queries this quarter.', 'tse-site-exporter' ),
-            'placeholder' => "/walk-in-shower-installation/",
-        ),
-        'growth_targets'           => array(
-            'label'       => __( 'Growth Targets', 'tse-site-exporter' ),
-            'help'        => __( 'New or under-developed pages you want to grow organic traffic for.', 'tse-site-exporter' ),
-            'placeholder' => "/new-service-launch/",
-        ),
-        'campaign_pages'           => array(
-            'label'       => __( 'Campaign Pages', 'tse-site-exporter' ),
-            'help'        => __( 'Time-limited campaign / promo pages. Recommendation engine will weight these for the campaign window.', 'tse-site-exporter' ),
-            'placeholder' => "/summer-sale-2026/",
-        ),
         'geo_location_targets'     => array(
             'label'       => __( 'Geo / Location Targets', 'tse-site-exporter' ),
-            'help'        => __( 'Local-SEO pages targeting a specific town / region.', 'tse-site-exporter' ),
+            'help'        => __( 'Local-SEO pages targeting a specific town / region. Listed URLs are force-classified as location pages.', 'tse-site-exporter' ),
             'placeholder' => "/bathroom-renovations-leeds/",
+        ),
+        'support_pages'            => array(
+            'label'       => __( 'Support Pages', 'tse-site-exporter' ),
+            'help'        => __( 'Topical articles, FAQs, guides that feed the strategic targets above.', 'tse-site-exporter' ),
+            'placeholder' => "/how-long-does-a-bathroom-renovation-take/",
         ),
         'priority_urls'            => array(
             'label'       => __( 'Priority URLs', 'tse-site-exporter' ),
@@ -76,11 +72,6 @@ function tse_strategy_buckets() {
             'help'        => __( 'The final-step URLs that capture leads / sales (quote form, checkout).', 'tse-site-exporter' ),
             'placeholder' => "/get-a-quote/",
         ),
-        'support_pages'            => array(
-            'label'       => __( 'Support Pages', 'tse-site-exporter' ),
-            'help'        => __( 'Topical articles, FAQs, guides that feed the strategic targets above.', 'tse-site-exporter' ),
-            'placeholder' => "/how-long-does-a-bathroom-renovation-take/",
-        ),
         'protected_urls'           => array(
             'label'       => __( 'Protected URLs', 'tse-site-exporter' ),
             'help'        => __( 'URLs the engine should never suggest changing, merging, redirecting or noindexing.', 'tse-site-exporter' ),
@@ -90,19 +81,30 @@ function tse_strategy_buckets() {
 }
 
 /**
- * Migrate legacy bucket keys (V2.9 → V2.10) silently on first read.
- * money_pages    → active_strategic_targets
- * location_pages → geo_location_targets
+ * Migrate legacy bucket keys (V2.9 → V2.10 → V2.10.1) silently on first read.
+ *   money_pages         → active_strategic_targets    (V2.9 → V2.10)
+ *   location_pages      → geo_location_targets         (V2.9 → V2.10)
+ *   current_seo_targets → active_strategic_targets    (V2.10 → V2.10.1)
+ *   growth_targets      → active_strategic_targets    (V2.10 → V2.10.1)
+ *   campaign_pages      → active_strategic_targets    (V2.10 → V2.10.1)
  */
 function tse_strategy_migrate_legacy( $stored ) {
     if ( ! is_array( $stored ) ) return array();
     $map = array(
-        'money_pages'    => 'active_strategic_targets',
-        'location_pages' => 'geo_location_targets',
+        'money_pages'         => 'active_strategic_targets',
+        'location_pages'      => 'geo_location_targets',
+        'current_seo_targets' => 'active_strategic_targets',
+        'growth_targets'      => 'active_strategic_targets',
+        'campaign_pages'      => 'active_strategic_targets',
     );
     $changed = false;
     foreach ( $map as $old => $new ) {
         if ( ! isset( $stored[ $old ] ) ) continue;
+        if ( empty( $stored[ $old ] ) ) {
+            unset( $stored[ $old ] );
+            $changed = true;
+            continue;
+        }
         if ( empty( $stored[ $new ] ) ) {
             $stored[ $new ] = $stored[ $old ];
         } else {
@@ -284,9 +286,6 @@ function tse_strategy_build_mismatch( $strategy, $records, $relationships, $auth
     // under-linked / below-median rules.
     $strategic_buckets = array(
         'active_strategic_targets',
-        'current_seo_targets',
-        'growth_targets',
-        'campaign_pages',
         'geo_location_targets',
     );
 

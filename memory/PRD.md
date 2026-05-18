@@ -100,6 +100,29 @@ Build a WordPress plugin "TSE Site Exporter" that produces an AI-ready structure
 
 ## Backlog / Roadmap
 - **P1** Local SEO analysis — NAP consistency, LocalBusiness completeness, geo-signal scoring (WordPress side).
+
+### V2.10.1 — Bucket simplification + dup-meta bug + geo heuristics (2026-05)
+Acting on second-round feedback. Items 1-3 / 7-9 of the user's refinement brief shipped in V2.10; this point release addresses the three new items that were genuinely outstanding:
+
+- **Strategy buckets simplified back from 9 → 6** (user explicitly asked to drop campaign / growth / SEO-target buckets as "unnecessary and confusing at this stage"):
+  - Active Strategic Targets · Geo/Location Targets · Support Pages · Priority URLs · Primary Conversion Pages · Protected URLs.
+  - Auto-migration: any data sitting in `current_seo_targets`, `growth_targets`, `campaign_pages` is folded into `active_strategic_targets` on first read and the legacy keys are dropped from `wp_options`.
+
+- **Duplicate-meta render bug fixed** (`ai_summary.php`):
+  - The `meta_title_index` / `meta_desc_index` could contain the same URL twice (drafts, slug collisions, repeat post-type passes), producing "duplicate metadata" findings that listed the SAME URL twice instead of two distinct conflicting pages.
+  - Fix: `array_unique` + empty-string filter applied per bucket before the `> 1` distinct-count check. Sets with only one distinct URL are dropped.
+
+- **Location-page detection greatly strengthened** (`authority.php`):
+  - New URL geo modifiers: `-in-<place>`, `-near-me`, `/<city>/`, `<service>-<city>/`, `<city>-<service>/`. Conservative UK city dictionary (~70 tokens) drives matching.
+  - New "in `<Capitalised Place>`" pattern in H1 / meta_title.
+  - Filler-word safety: rejects "in the area", "in your house", etc. (compares the first token, not just the whole capture).
+  - Local schema (`LocalBusiness`, `Place`, `GeoCoordinates`) now upgrades service / article / support → location (previously only `other`).
+  - User-declared `geo_location_targets` is a hard override: matching URL is forced to `strategic_type=location` with confidence 1.0, ahead of all heuristics.
+
+- Prompt vocabulary cleaned to reference only the 2 surviving strategic buckets (`active_strategic_targets`, `geo_location_targets`).
+
+Tested via `/app/smoke_v210.php` (66/66 assertions total, +15 V2.10.1 specific). All earlier suites green.
+
 - **P2** Website replication / asset deployment workflows.
 - **P2** Cheaper-tier model presets (GPT-4o-mini, Claude Haiku 4.5, Gemini 3 Flash) + per-prompt model overrides.
 - **P2** Optional dashboard / chat interface.

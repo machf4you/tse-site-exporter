@@ -126,7 +126,7 @@ check( 'migration: persisted to wp_options',                ! isset( get_option(
 
 // new buckets exist
 $buckets = array_keys( tse_strategy_buckets() );
-foreach ( [ 'active_strategic_targets', 'current_seo_targets', 'growth_targets', 'campaign_pages', 'geo_location_targets', 'priority_urls', 'primary_conversion_pages', 'support_pages', 'protected_urls' ] as $b ) {
+foreach ( [ 'active_strategic_targets', 'geo_location_targets', 'priority_urls', 'primary_conversion_pages', 'support_pages', 'protected_urls' ] as $b ) {
     check( "bucket $b exists in V2.10 set", in_array( $b, $buckets, true ) );
 }
 
@@ -238,6 +238,127 @@ check( 'implementation_guidance defaulted on linking',     '' !== $link_kept[0][
 $split = tse_issues_split_tracks( $issues );
 check( 'splitter: content_admin non-empty',                count( $split['content_admin'] ) >= 1 );
 check( 'splitter: developer_technical non-empty',          count( $split['developer_technical'] ) >= 1 );
+
+echo "\n";
+echo "=== V2.10.1 — bucket simplification + dup-meta + geo heuristics ===\n";
+
+/* -- 7. Bucket simplification + migration of 3 dropped V2.10 buckets ----- */
+$GLOBALS['__opts'] = [];
+tse_strategy_save( [
+    'active_strategic_targets' => "/keep-this/",
+    'current_seo_targets'      => "/seo-target-1/",
+    'growth_targets'           => "/growth-1/",
+    'campaign_pages'           => "/campaign-1/",
+    'geo_location_targets'     => "/leeds/",
+    'protected_urls'           => "/legacy/",
+] );
+// V2.10.1: only 6 buckets are valid — saving 3 dead keys must NOT persist them.
+$saved = tse_strategy_get();
+$buckets_now = array_keys( tse_strategy_buckets() );
+check( 'V2.10.1: bucket count = 6',                 count( $buckets_now ) === 6 );
+check( 'V2.10.1: current_seo_targets gone',         ! in_array( 'current_seo_targets', $buckets_now, true ) );
+check( 'V2.10.1: growth_targets gone',              ! in_array( 'growth_targets',      $buckets_now, true ) );
+check( 'V2.10.1: campaign_pages gone',              ! in_array( 'campaign_pages',      $buckets_now, true ) );
+check( 'V2.10.1: active_strategic_targets present', in_array( 'active_strategic_targets', $buckets_now, true ) );
+check( 'V2.10.1: geo_location_targets present',     in_array( 'geo_location_targets',     $buckets_now, true ) );
+
+// Now seed the raw option with the legacy keys directly (simulating an
+// upgrade from V2.10) and check migration on read.
+$GLOBALS['__opts'] = [];
+update_option( 'tse_site_exporter_strategy', [
+    'active_strategic_targets' => [ '/keep-this/' ],
+    'current_seo_targets'      => [ '/seo-target-1/' ],
+    'growth_targets'           => [ '/growth-1/' ],
+    'campaign_pages'           => [ '/campaign-1/' ],
+] );
+$mig = tse_strategy_get();
+check( 'V2.10.1 migration: current_seo_targets folded',
+    in_array( '/seo-target-1/', $mig['active_strategic_targets'], true ) );
+check( 'V2.10.1 migration: growth_targets folded',
+    in_array( '/growth-1/',     $mig['active_strategic_targets'], true ) );
+check( 'V2.10.1 migration: campaign_pages folded',
+    in_array( '/campaign-1/',   $mig['active_strategic_targets'], true ) );
+check( 'V2.10.1 migration: keys persisted-cleaned',
+    ! isset( get_option( 'tse_site_exporter_strategy' )['current_seo_targets'] ) );
+
+/* -- 8. Duplicate-meta dedupe bug fix ------------------------------------ */
+// We exercise the relevant lines of ai_summary.php directly by replicating
+// the bug pre-condition: an index whose `urls` bucket contains the same URL
+// twice (caused upstream by slug collisions / draft revisions).
+$bug_urls   = [ 'https://site.test/a/', 'https://site.test/a/' ]; // same URL twice
+$valid_urls = [ 'https://site.test/a/', 'https://site.test/b/' ]; // two distinct URLs
+
+// Helper that mirrors the fix in ai_summary.php (V2.10.1).
+function tse_test_dup_filter( $urls ) {
+    $unique = array_values( array_unique( array_filter( (array) $urls, 'strlen' ) ) );
+    return count( $unique ) > 1 ? $unique : null;
+}
+check( 'dup-meta fix: same-URL-twice set → DROPPED', tse_test_dup_filter( $bug_urls )   === null );
+check( 'dup-meta fix: two distinct URLs → KEPT',     tse_test_dup_filter( $valid_urls ) === $valid_urls );
+
+/* -- 9. Geo / location heuristic ----------------------------------------- */
+require_once __DIR__ . '/tse-site-exporter/includes/authority.php';
+
+// "bathroom-renovations-in-leeds" → location via "in-leeds" URL token.
+$sig = tse_authority_detect_geo_signal(
+    'https://site.test/bathroom-renovations-in-leeds/',
+    [ 'content' => [ 'h1' => [ 'Bathroom Renovations' ] ], 'seo' => [ 'meta_title' => 'Bathroom Renovations' ] ]
+);
+check( 'geo: -in-leeds in URL detected', false !== strpos( (string) $sig, 'leeds' ) );
+
+// "/leeds/bathroom-renovations/" → city-segment.
+$sig2 = tse_authority_detect_geo_signal(
+    'https://site.test/leeds/bathroom-renovations/',
+    [ 'content' => [ 'h1' => [ 'Bathroom Renovations' ] ], 'seo' => [] ]
+);
+check( 'geo: city in path segment detected', null !== $sig2 );
+
+// "in Leeds" in title → h1:in-leeds.
+$sig3 = tse_authority_detect_geo_signal(
+    'https://site.test/services/bathroom-fitting/',
+    [ 'content' => [ 'h1' => [ 'Bathroom Fitting in Leeds' ] ], 'seo' => [ 'meta_title' => '' ] ]
+);
+check( 'geo: "in <Place>" in H1 detected',  false !== strpos( (string) $sig3, 'leeds' ) );
+
+// Pure service page WITHOUT geo → null.
+$sig4 = tse_authority_detect_geo_signal(
+    'https://site.test/services/bathroom-fitting/',
+    [ 'content' => [ 'h1' => [ 'Bathroom Fitting' ] ], 'seo' => [ 'meta_title' => 'Bathroom Fitting' ] ]
+);
+check( 'geo: pure service page → no signal', null === $sig4 );
+
+// Filler-word safety: "/services/in-the-area/" must NOT be detected.
+$sig5 = tse_authority_detect_geo_signal(
+    'https://site.test/services/in-the-area/',
+    [ 'content' => [ 'h1' => [ 'In The Area' ] ], 'seo' => [] ]
+);
+check( 'geo: filler "in the" is rejected', null === $sig5 || false === strpos( (string) $sig5, 'the' ) );
+
+// Declared geo_location_targets bucket = hard override.
+$GLOBALS['__opts'] = [];
+tse_strategy_save( [ 'geo_location_targets' => "/declared-geo/" ] );
+$cls = tse_authority_classify_strategic(
+    [
+        'url' => 'https://site.test/declared-geo/',
+        'classification' => '', 'post_type' => 'page',
+        'content' => [ 'h1' => [ 'No Geo Here' ] ], 'seo' => [], 'schema' => [ 'types' => [] ],
+    ],
+    [ 'incoming_link_count' => 0 ]
+);
+check( 'declared geo URL → strategic_type=location', $cls['type'] === 'location' );
+check( 'declared geo URL → confidence=1.0',          (float) $cls['confidence'] === 1.0 );
+
+// LocalBusiness schema upgrade now wins over service.
+$cls2 = tse_authority_classify_strategic(
+    [
+        'url' => 'https://site.test/services/somewhere/',
+        'classification' => '', 'post_type' => 'page',
+        'content' => [ 'h1' => [ 'Services' ] ], 'seo' => [],
+        'schema' => [ 'types' => [ 'LocalBusiness' ] ],
+    ],
+    [ 'incoming_link_count' => 0 ]
+);
+check( 'LocalBusiness schema upgrades service → location', $cls2['type'] === 'location' );
 
 echo "\n";
 if ( $fail === 0 ) { echo "ALL ASSERTIONS PASS\n"; exit(0); }

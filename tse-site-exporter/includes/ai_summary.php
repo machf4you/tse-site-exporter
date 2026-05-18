@@ -298,13 +298,22 @@ function tse_ai_summary_build( $records, $relationships, $authority, $postproces
     }
 
     // Duplicate metadata detection.
+    // V2.10.1 bug fix: dedupe URLs inside each bucket so the same URL never
+    // appears twice (this was causing "duplicate-meta" findings that listed
+    // the same page twice instead of two distinct conflicting pages).
     $dup_titles = array();
     foreach ( $meta_title_index as $title => $urls ) {
-        if ( count( $urls ) > 1 ) $dup_titles[] = array( 'meta_title' => $title, 'count' => count( $urls ), 'urls' => $urls );
+        $unique = array_values( array_unique( array_filter( (array) $urls, 'strlen' ) ) );
+        if ( count( $unique ) > 1 ) {
+            $dup_titles[] = array( 'meta_title' => $title, 'count' => count( $unique ), 'urls' => $unique );
+        }
     }
     $dup_descs = array();
     foreach ( $meta_desc_index as $desc => $urls ) {
-        if ( count( $urls ) > 1 ) $dup_descs[] = array( 'meta_description' => $desc, 'count' => count( $urls ), 'urls' => $urls );
+        $unique = array_values( array_unique( array_filter( (array) $urls, 'strlen' ) ) );
+        if ( count( $unique ) > 1 ) {
+            $dup_descs[] = array( 'meta_description' => $desc, 'count' => count( $unique ), 'urls' => $unique );
+        }
     }
 
     // Under-supported clusters: any cluster that is isolated OR dominated by

@@ -323,6 +323,21 @@ function tse_authority_classify_strategic( $r, $per_page_rel ) {
     $post_type      = isset( $r['post_type'] )      ? $r['post_type']      : 'page';
     $signals        = array();
 
+    // V2.10.1 — Hard override: URL is declared as a geo/location target.
+    // Run as the very first check so the user's explicit declaration always
+    // beats heuristics.
+    if ( function_exists( 'tse_authority_strategy_location_lookup' ) ) {
+        $geo_set = tse_authority_strategy_location_lookup();
+        $norm    = tse_authority_normalise_path( $url );
+        if ( '' !== $norm && isset( $geo_set[ $norm ] ) ) {
+            return array(
+                'type'       => 'location',
+                'confidence' => 1.0,
+                'signals'    => array( 'strategy:declared_geo_location_target' ),
+            );
+        }
+    }
+
     // Homepage wins first.
     if ( 'homepage' === $classification ) {
         return array( 'type' => 'homepage', 'confidence' => 1.0, 'signals' => array( 'wp_front_page' ) );
@@ -365,6 +380,18 @@ function tse_authority_classify_strategic( $r, $per_page_rel ) {
         }
     }
 
+    // V2.10.1 — Location heuristics. Can upgrade type='location' over
+    // service/article/other when the URL or H1/title carries a clear geo
+    // modifier. Homepage / product / category remain immune (returned early).
+    if ( in_array( $type, array( 'other', 'service', 'article', 'support' ), true ) ) {
+        $geo_signal = tse_authority_detect_geo_signal( $url, $r );
+        if ( null !== $geo_signal ) {
+            $signals[] = $geo_signal;
+            $type      = 'location';
+            $conf      = max( $conf, 0.85 );
+        }
+    }
+
     // CRO signals → reinforce or upgrade to money.
     if ( ! empty( $r['cro'] ) && is_array( $r['cro'] ) ) {
         $cro         = $r['cro'];
@@ -390,9 +417,12 @@ function tse_authority_classify_strategic( $r, $per_page_rel ) {
     }
     foreach ( $schema_types as $st ) {
         $stl = strtolower( (string) $st );
-        if ( false !== strpos( $stl, 'localbusiness' ) || 'place' === $stl ) {
+        if ( false !== strpos( $stl, 'localbusiness' ) || 'place' === $stl || 'geocoordinates' === $stl ) {
             $signals[] = 'schema:LocalBusiness';
-            if ( 'other' === $type ) { $type = 'location'; $conf = max( $conf, 0.7 ); }
+            // V2.10.1 — Local schema can upgrade service/article/support → location.
+            if ( in_array( $type, array( 'other', 'service', 'article', 'support' ), true ) ) {
+                $type = 'location'; $conf = max( $conf, 0.85 );
+            }
         }
         if ( 'product' === $stl && 'other' === $type ) {
             $type = 'product'; $conf = 0.9; $signals[] = 'schema:Product';
@@ -579,4 +609,157 @@ function tse_authority_percentile( $values, $p ) {
     if ( $idx < 0 ) $idx = 0;
     if ( $idx >= count( $values ) ) $idx = count( $values ) - 1;
     return $values[ $idx ];
+}
+
+
+/* -------------------------------------------------------------------------
+ * V2.10.1 — Geo / location helpers
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Lookup of geo/location target normalised paths declared by the user in
+ * the Strategic SEO Configuration. Cached per-request so we don't hit
+ * wp_options on every PageRecord. Keys are normalised paths (lowercase,
+ * trailing slash).
+ */
+function tse_authority_strategy_location_lookup() {
+    static $cache = null;
+    if ( null !== $cache ) return $cache;
+    $cache = array();
+    if ( ! function_exists( 'tse_strategy_get' ) ) return $cache;
+    $st = tse_strategy_get();
+    $list = isset( $st['geo_location_targets'] ) ? (array) $st['geo_location_targets'] : array();
+    foreach ( $list as $entry ) {
+        $n = function_exists( 'tse_strategy_normalise_url' )
+            ? tse_strategy_normalise_url( $entry )
+            : tse_authority_normalise_path( $entry );
+        if ( '' !== $n ) $cache[ $n ] = true;
+    }
+    return $cache;
+}
+
+function tse_authority_normalise_path( $url ) {
+    $parts = function_exists( 'wp_parse_url' ) ? wp_parse_url( $url ) : parse_url( $url );
+    $path  = is_array( $parts ) && isset( $parts['path'] ) ? $parts['path'] : '/';
+    if ( '' === $path ) $path = '/';
+    if ( '/' !== $path[0] ) $path = '/' . $path;
+    $path = preg_replace( '/[#?].*$/', '', $path );
+    $path = strtolower( $path );
+    if ( '/' !== substr( $path, -1 ) ) $path .= '/';
+    return $path;
+}
+
+/**
+ * Detect a strong geo modifier on a record using:
+ *   1. URL geo modifiers (e.g. "-in-leeds", "-leeds-", "/leeds/", "-near-me")
+ *   2. H1 / title pattern "[Service] in [Capitalised Place]"
+ *   3. Known UK / common locality tokens in the slug
+ *
+ * Returns a short signal string ("url:in-place", "h1:in-place", "slug:locality")
+ * or null when nothing matches.
+ */
+function tse_authority_detect_geo_signal( $url, $r ) {
+    $path = '';
+    $parts = function_exists( 'wp_parse_url' ) ? wp_parse_url( $url ) : parse_url( $url );
+    if ( is_array( $parts ) && isset( $parts['path'] ) ) $path = $parts['path'];
+
+    // ----- 1. URL-segment patterns.
+    if ( preg_match( '#(?:^|/|-)in-([a-z][a-z\-]{2,30})(?:/|-|$)#', $path, $m ) && ! tse_authority_is_filler_word( $m[1] ) ) {
+        return 'url:in-' . $m[1];
+    }
+    if ( preg_match( '#-near-me(?:/|$)#', $path ) ) {
+        return 'url:near-me';
+    }
+    if ( preg_match( '#/(' . tse_authority_uk_geo_regex() . ')-#', $path, $m ) ) {
+        return 'url:city-prefix:' . $m[1];
+    }
+    if ( preg_match( '#-(' . tse_authority_uk_geo_regex() . ')(?:/|$)#', $path, $m ) ) {
+        return 'url:city-suffix:' . $m[1];
+    }
+    if ( preg_match( '#/(' . tse_authority_uk_geo_regex() . ')/#', $path, $m ) ) {
+        return 'url:city-segment:' . $m[1];
+    }
+
+    // ----- 2. H1 / title "in <Place>" pattern.
+    $haystacks = array();
+    if ( ! empty( $r['content']['h1'] ) ) {
+        foreach ( (array) $r['content']['h1'] as $h1 ) $haystacks[] = (string) $h1;
+    }
+    $title = isset( $r['seo']['meta_title'] ) ? (string) $r['seo']['meta_title'] : '';
+    if ( '' !== $title ) $haystacks[] = $title;
+
+    foreach ( $haystacks as $hs ) {
+        // "in Leeds", "in Leeds City Centre", "in Greater Manchester".
+        if ( preg_match( '/\bin\s+([A-Z][a-zA-Z]+(?:[\s-][A-Z][a-zA-Z]+){0,2})\b/u', $hs, $m ) ) {
+            $candidate = strtolower( $m[1] );
+            if ( ! tse_authority_is_filler_word( $candidate ) ) {
+                return 'h1:in-' . str_replace( ' ', '-', $candidate );
+            }
+        }
+        // "<Service> Leeds" — last capitalised token matches a known city.
+        if ( preg_match( '/\b(' . tse_authority_uk_geo_regex_capitalised() . ')\b/u', $hs, $m ) ) {
+            return 'h1:city:' . strtolower( $m[1] );
+        }
+    }
+
+    return null;
+}
+
+function tse_authority_is_filler_word( $w ) {
+    $w = strtolower( trim( (string) $w ) );
+    if ( '' === $w ) return true;
+    // Multi-word capture: bail if the FIRST token is a filler (e.g. "the-area").
+    $first = preg_split( '/[\s\-]+/', $w )[0] ?? $w;
+    static $fillers = array(
+        'the', 'and', 'for', 'with', 'your', 'our', 'this', 'that',
+        'general', 'simple', 'easy', 'detail', 'depth', 'time', 'mind',
+        'order', 'place', 'turn', 'fact', 'short', 'addition', 'house',
+        'home', 'office', 'business', 'shop', 'store', 'area', 'areas',
+        'minute', 'minutes', 'second', 'seconds', 'hour', 'hours',
+    );
+    return in_array( $first, $fillers, true ) || in_array( $w, $fillers, true );
+}
+
+/**
+ * Pragmatic UK / common-English city dictionary used for slug/H1 detection.
+ * Kept conservative — adding too many words causes false positives on
+ * generic copy. Users who care should declare URLs in geo_location_targets.
+ */
+function tse_authority_uk_geo_tokens() {
+    static $list = null;
+    if ( null !== $list ) return $list;
+    $list = array(
+        // Big UK cities + regions
+        'london','birmingham','leeds','glasgow','sheffield','bradford','manchester',
+        'liverpool','bristol','edinburgh','cardiff','belfast','newcastle','nottingham',
+        'leicester','sunderland','southampton','portsmouth','york','brighton','hull',
+        'plymouth','stoke','wolverhampton','coventry','reading','swansea','aberdeen',
+        'derby','dundee','milton-keynes','northampton','luton','oxford','cambridge',
+        'norwich','exeter','bath','peterborough','bournemouth','blackpool','preston',
+        'middlesbrough','huddersfield','blackburn','warrington','oldham','bolton',
+        'rotherham','stockport','watford','swindon','telford','ipswich',
+        // Greater regions
+        'yorkshire','lancashire','merseyside','cheshire','kent','surrey','essex',
+        'sussex','hampshire','hertfordshire','wiltshire','dorset','devon','cornwall',
+        'midlands','tyneside','wearside',
+    );
+    return $list;
+}
+
+function tse_authority_uk_geo_regex() {
+    static $rx = null;
+    if ( null !== $rx ) return $rx;
+    $rx = implode( '|', array_map( 'preg_quote', tse_authority_uk_geo_tokens() ) );
+    return $rx;
+}
+
+function tse_authority_uk_geo_regex_capitalised() {
+    static $rx = null;
+    if ( null !== $rx ) return $rx;
+    $tokens = tse_authority_uk_geo_tokens();
+    $caps = array_map( function( $t ) {
+        return implode( '-', array_map( 'ucfirst', explode( '-', $t ) ) );
+    }, $tokens );
+    $rx = implode( '|', array_map( 'preg_quote', $caps ) );
+    return $rx;
 }
