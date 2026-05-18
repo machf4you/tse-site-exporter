@@ -84,6 +84,20 @@ Build a WordPress plugin "TSE Site Exporter" that produces an AI-ready structure
 - Admin UI: new "Strategic SEO Configuration" panel above the dashboard with 6 textareas; save handler `tse_site_exporter_strategy_save` (nonce + `manage_options`).
 - Tested via `/app/smoke_strategy.php` (28/28) and `/app/smoke_report_v29.php` (14/14): normalisation, parser dedup, 7 mismatch rule types, banned-jargon scan, card-layout rendering, strategy-section gating.
 
+### V2.10.0 — Page intent + indexability + unified issue model (2026-05)
+- New `includes/page_intent.php`: URL-pattern + post_type classifier → `intent ∈ { seo, utility, legal, conversion, template, gallery }`; `indexability ∈ { index, noindex, unknown }` from Yoast (`_yoast_wpseo_meta-robots-noindex`) + Rank Math (`rank_math_robots`) postmeta + live `<meta name="robots">`; one-shot sitemap fetcher (`sitemap_index.xml` → `wp-sitemap.xml`) caches the URL set so every record gets `excluded_from_sitemap` (nullable). All three dimensions ride through to `ai-page-summaries.json`.
+- Strategy buckets reframed for time-bound campaigns. 9 buckets: Active Strategic Targets / Current SEO Targets / Growth Targets / Campaign Pages / Geo-Location Targets / Priority URLs / Primary Conversion Pages / Support Pages / Protected URLs. Auto-migration on first read: `money_pages → active_strategic_targets`, `location_pages → geo_location_targets`. Mismatch wording updated.
+- New `includes/issue_normaliser.php`: unified schema `{ id, group, severity, action_type, intent_filter, affected_pages, recommendation, implementation_guidance, confidence, source }`. Groups: Metadata / Linking / Cannibalisation / Thin Content / Architecture / Authority / Strategy / Other. Three suppression rules (linking on non-SEO → drop, metadata/thin where ALL pages are non-SEO → drop). Deduper merges items emitted by multiple prompts. Action classifier tags each item `content_admin` or `developer_technical`.
+- AI runner prompts rewritten: banned jargon list extended (`crawl prominence`, `internal equity`, `passes authority`); each item must declare `action_type` + `implementation_guidance`; non-SEO / noindex / sitemap-excluded pages explicitly excluded; new bucket vocabulary surfaced to all 4 prompts.
+- Report renderer:
+  - Card labels reworded — **FROM → "Edit this page"**, **TO → "Add link to"**.
+  - New two-track section ("Content / Admin track" + "Developer / Technical track"), grouped by issue group.
+  - Clickable `<details>` Executive Summary cards (High / Medium / Near-Orphan / Weak Strategic Targets / Cannibalisation Risks / Thin Content) expand inline to the affected URL list.
+  - Old per-prompt "Prioritised recommendations" + "Content gap signals" tables removed in favour of the unified tracks.
+- Tested via `smoke_v210.php` (51/51): intent classifier, indexability extractor, sitemap fetcher + URL set, strategy migration, V2.10 mismatch wording, normaliser suppression / dedupe / action_type, two-track splitter.
+- All earlier suites green: `smoke_strategy.php` (28/28 — updated wording), `smoke_dashboard.php` (29/29), `smoke_report_v29.php` (14/14 — labels updated), `smoke_magento.php` (70/70 — no regression).
+
+
 ## Backlog / Roadmap
 - **P1** Local SEO analysis — NAP consistency, LocalBusiness completeness, geo-signal scoring (WordPress side).
 - **P2** Website replication / asset deployment workflows.

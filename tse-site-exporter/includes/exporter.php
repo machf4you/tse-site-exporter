@@ -18,6 +18,11 @@ function tse_exporter_run( $opts ) {
     $post_types = tse_exporter_target_post_types();
     $front_id   = (int) get_option( 'page_on_front' );
 
+    // V2.10 — fetch the SEO plugin sitemap ONCE up-front so every record can
+    // be flagged excluded_from_sitemap=true/false without re-fetching.
+    $sitemap_meta = function_exists( 'tse_page_sitemap_fetch_url_set' ) ? tse_page_sitemap_fetch_url_set() : array( 'urls' => array(), 'source' => '' );
+    $sitemap_set  = isset( $sitemap_meta['urls'] ) ? $sitemap_meta['urls'] : array();
+
     $records   = array();
     $count     = 0;
     $truncated = false;
@@ -29,7 +34,7 @@ function tse_exporter_run( $opts ) {
                 $truncated = true;
                 break 2;
             }
-            $records[] = tse_exporter_build_record( $post, $front_id, $opts );
+            $records[] = tse_exporter_build_record( $post, $front_id, $opts, $sitemap_set );
             $count++;
         }
     }
@@ -160,7 +165,7 @@ function tse_exporter_fetch_posts( $post_type ) {
  * Per-post record builder
  * ---------------------------------------------------------------------- */
 
-function tse_exporter_build_record( $post, $front_id, $opts ) {
+function tse_exporter_build_record( $post, $front_id, $opts, $sitemap_set = array() ) {
     setup_postdata( $post );
 
     $permalink = get_permalink( $post );
@@ -212,7 +217,7 @@ function tse_exporter_build_record( $post, $front_id, $opts ) {
 
     wp_reset_postdata();
 
-    return array(
+    $record = array(
         'id'           => (int) $post->ID,
         'url'          => $permalink ? $permalink : '',
         'slug'         => $post->post_name,
@@ -252,6 +257,20 @@ function tse_exporter_build_record( $post, $front_id, $opts ) {
         ),
         'schema' => $schema_section,
     );
+
+    // V2.10 — page intent + indexability + sitemap awareness.
+    if ( function_exists( 'tse_page_intent_classify' ) ) {
+        $record['intent'] = tse_page_intent_classify( $record );
+    }
+    if ( function_exists( 'tse_page_indexability' ) ) {
+        $record['indexability'] = tse_page_indexability( $post->ID, $live_html );
+    }
+    if ( function_exists( 'tse_page_sitemap_is_excluded' ) ) {
+        $excluded = tse_page_sitemap_is_excluded( $record['url'], $sitemap_set );
+        $record['excluded_from_sitemap'] = ( null === $excluded ) ? null : (bool) $excluded;
+    }
+
+    return $record;
 }
 
 /* -------------------------------------------------------------------------

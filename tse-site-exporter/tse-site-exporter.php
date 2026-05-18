@@ -2,7 +2,7 @@
 /**
  * Plugin Name: TSE Site Exporter
  * Description: Exports AI-ready structured website intelligence (SEO, content hierarchy, internal/external links, media, CRO signals, full structured-data audit, interpreted Elementor structure, page classification, site hierarchy, and a full internal-link relationship graph with per-page metrics, orphan/weak detection, classification flow and top hubs/authorities) as a downloadable ZIP of JSON files.
- * Version:     2.9.0
+ * Version:     2.10.0
  * Author:      TSE
  * License:     GPL-2.0-or-later
  * Text Domain: tse-site-exporter
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'TSE_SITE_EXPORTER_VERSION', '2.9.0' );
+define( 'TSE_SITE_EXPORTER_VERSION', '2.10.0' );
 define( 'TSE_SITE_EXPORTER_NONCE',   'tse_site_exporter_export' );
 define( 'TSE_SITE_EXPORTER_AI_NONCE','tse_site_exporter_ai' );
 define( 'TSE_SITE_EXPORTER_PATH',    plugin_dir_path( __FILE__ ) );
@@ -27,6 +27,8 @@ require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_settings.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_provider.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_runner.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/ai_report.php';
+require_once TSE_SITE_EXPORTER_PATH . 'includes/page_intent.php';
+require_once TSE_SITE_EXPORTER_PATH . 'includes/issue_normaliser.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/strategy.php';
 require_once TSE_SITE_EXPORTER_PATH . 'includes/dashboard.php';
 

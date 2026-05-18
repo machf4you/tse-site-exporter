@@ -35,23 +35,34 @@ define( 'TSE_STRATEGY_OPTION', 'tse_site_exporter_strategy' );
 define( 'TSE_STRATEGY_NONCE',  'tse_site_exporter_strategy' );
 
 /**
- * The 6 supported buckets. Order matters: it's the UI render order AND the
- * mismatch reporting order.
+ * The 9 supported buckets (V2.10 — time-bound vocabulary). Order matters:
+ * it is the UI render order AND the mismatch reporting order. Old buckets
+ * (money_pages, location_pages) are auto-migrated in tse_strategy_get().
  */
 function tse_strategy_buckets() {
     return array(
-        'money_pages'              => array(
-            'label'       => __( 'Money Pages', 'tse-site-exporter' ),
-            'help'        => __( 'Conversion-driving pages (services, key products, "hire us" pages).', 'tse-site-exporter' ),
+        'active_strategic_targets' => array(
+            'label'       => __( 'Active Strategic Targets', 'tse-site-exporter' ),
+            'help'        => __( 'Pages you are actively prioritising right now. Edit this list as priorities shift — these are not permanent labels.', 'tse-site-exporter' ),
             'placeholder' => "/bathroom-renovations/\n/kitchen-fitting/",
         ),
-        'support_pages'            => array(
-            'label'       => __( 'Support Pages', 'tse-site-exporter' ),
-            'help'        => __( 'Topical articles, FAQs, guides that support the money pages.', 'tse-site-exporter' ),
-            'placeholder' => "/how-long-does-a-bathroom-renovation-take/",
+        'current_seo_targets'      => array(
+            'label'       => __( 'Current SEO Targets', 'tse-site-exporter' ),
+            'help'        => __( 'Pages targeting specific keywords/queries this quarter.', 'tse-site-exporter' ),
+            'placeholder' => "/walk-in-shower-installation/",
         ),
-        'location_pages'           => array(
-            'label'       => __( 'Location Pages', 'tse-site-exporter' ),
+        'growth_targets'           => array(
+            'label'       => __( 'Growth Targets', 'tse-site-exporter' ),
+            'help'        => __( 'New or under-developed pages you want to grow organic traffic for.', 'tse-site-exporter' ),
+            'placeholder' => "/new-service-launch/",
+        ),
+        'campaign_pages'           => array(
+            'label'       => __( 'Campaign Pages', 'tse-site-exporter' ),
+            'help'        => __( 'Time-limited campaign / promo pages. Recommendation engine will weight these for the campaign window.', 'tse-site-exporter' ),
+            'placeholder' => "/summer-sale-2026/",
+        ),
+        'geo_location_targets'     => array(
+            'label'       => __( 'Geo / Location Targets', 'tse-site-exporter' ),
             'help'        => __( 'Local-SEO pages targeting a specific town / region.', 'tse-site-exporter' ),
             'placeholder' => "/bathroom-renovations-leeds/",
         ),
@@ -65,12 +76,53 @@ function tse_strategy_buckets() {
             'help'        => __( 'The final-step URLs that capture leads / sales (quote form, checkout).', 'tse-site-exporter' ),
             'placeholder' => "/get-a-quote/",
         ),
+        'support_pages'            => array(
+            'label'       => __( 'Support Pages', 'tse-site-exporter' ),
+            'help'        => __( 'Topical articles, FAQs, guides that feed the strategic targets above.', 'tse-site-exporter' ),
+            'placeholder' => "/how-long-does-a-bathroom-renovation-take/",
+        ),
         'protected_urls'           => array(
             'label'       => __( 'Protected URLs', 'tse-site-exporter' ),
             'help'        => __( 'URLs the engine should never suggest changing, merging, redirecting or noindexing.', 'tse-site-exporter' ),
             'placeholder' => "/legacy-campaign-do-not-touch/",
         ),
     );
+}
+
+/**
+ * Migrate legacy bucket keys (V2.9 → V2.10) silently on first read.
+ * money_pages    → active_strategic_targets
+ * location_pages → geo_location_targets
+ */
+function tse_strategy_migrate_legacy( $stored ) {
+    if ( ! is_array( $stored ) ) return array();
+    $map = array(
+        'money_pages'    => 'active_strategic_targets',
+        'location_pages' => 'geo_location_targets',
+    );
+    $changed = false;
+    foreach ( $map as $old => $new ) {
+        if ( ! isset( $stored[ $old ] ) ) continue;
+        if ( empty( $stored[ $new ] ) ) {
+            $stored[ $new ] = $stored[ $old ];
+        } else {
+            // Merge while preserving order + dedupe on normalised compare-keys.
+            $merged = $stored[ $new ];
+            $seen   = array();
+            foreach ( $merged as $m ) $seen[ tse_strategy_normalise_url( $m ) ] = true;
+            foreach ( $stored[ $old ] as $m ) {
+                $k = tse_strategy_normalise_url( $m );
+                if ( '' === $k || isset( $seen[ $k ] ) ) continue;
+                $merged[] = $m;
+                $seen[ $k ] = true;
+            }
+            $stored[ $new ] = $merged;
+        }
+        unset( $stored[ $old ] );
+        $changed = true;
+    }
+    if ( $changed ) update_option( TSE_STRATEGY_OPTION, $stored, false );
+    return $stored;
 }
 
 /* -------------------------------------------------------------------------
@@ -80,6 +132,8 @@ function tse_strategy_buckets() {
 function tse_strategy_get() {
     $stored = get_option( TSE_STRATEGY_OPTION, array() );
     if ( ! is_array( $stored ) ) $stored = array();
+    // V2.10 — silent migration of legacy bucket keys.
+    $stored = tse_strategy_migrate_legacy( $stored );
     $out = array();
     foreach ( tse_strategy_buckets() as $key => $_meta ) {
         $out[ $key ] = isset( $stored[ $key ] ) && is_array( $stored[ $key ] ) ? array_values( $stored[ $key ] ) : array();
@@ -226,6 +280,16 @@ function tse_strategy_build_mismatch( $strategy, $records, $relationships, $auth
     $declared_resolved   = 0;
     $declared_unresolved = array();
 
+    // Buckets treated as "high-value strategic targets" for the
+    // under-linked / below-median rules.
+    $strategic_buckets = array(
+        'active_strategic_targets',
+        'current_seo_targets',
+        'growth_targets',
+        'campaign_pages',
+        'geo_location_targets',
+    );
+
     foreach ( $idx as $norm_url => $buckets ) {
         if ( ! isset( $snap[ $norm_url ] ) ) {
             $declared_unresolved[] = $norm_url;
@@ -234,17 +298,19 @@ function tse_strategy_build_mismatch( $strategy, $records, $relationships, $auth
         $declared_resolved++;
         $s = $snap[ $norm_url ];
 
-        // ----- 1. Declared money page is under-linked.
-        if ( in_array( 'money_pages', $buckets, true ) && $s['incoming_link_count'] <= 2 ) {
+        $is_strategic = (bool) array_intersect( $buckets, $strategic_buckets );
+
+        // ----- 1. Declared strategic target is under-linked.
+        if ( $is_strategic && $s['incoming_link_count'] <= 2 ) {
             $items[] = array(
                 'priority'         => 'high',
-                'issue'            => 'Declared money page is under-linked',
+                'issue'            => 'Declared strategic target is under-linked',
                 'affected_pages'   => array( $s['url'] ),
                 'recommendation'   => 'Add at least 3 contextual internal links pointing to ' . $s['url']
-                                    . ' from your highest-authority topical pages.',
+                                    . ' from your highest-traffic topical pages.',
                 'confidence_score' => 1.0,
                 'category'         => 'strategy',
-                'declared_role'    => 'money',
+                'declared_buckets' => $buckets,
                 'actual_metrics'   => array(
                     'incoming_link_count' => $s['incoming_link_count'],
                     'authority_score'     => round( $s['internal_authority_score'], 2 ),
@@ -252,16 +318,16 @@ function tse_strategy_build_mismatch( $strategy, $records, $relationships, $auth
             );
         }
 
-        // ----- 2. Declared money page below median authority.
-        if ( in_array( 'money_pages', $buckets, true ) && $s['internal_authority_score'] < $median_auth ) {
+        // ----- 2. Declared strategic target below median authority.
+        if ( $is_strategic && $s['internal_authority_score'] < $median_auth ) {
             $items[] = array(
                 'priority'         => 'medium',
-                'issue'            => 'Declared money page sits below the site-wide median authority',
+                'issue'            => 'Declared strategic target sits below the site-wide median support level',
                 'affected_pages'   => array( $s['url'] ),
                 'recommendation'   => 'Identify 3–5 strong topical sources and add descriptive internal links to ' . $s['url'] . '.',
                 'confidence_score' => 1.0,
                 'category'         => 'strategy',
-                'declared_role'    => 'money',
+                'declared_buckets' => $buckets,
                 'actual_metrics'   => array(
                     'authority_score' => round( $s['internal_authority_score'], 2 ),
                     'median_authority'=> round( $median_auth, 2 ),
@@ -278,58 +344,57 @@ function tse_strategy_build_mismatch( $strategy, $records, $relationships, $auth
                 'recommendation'   => 'Add internal links to ' . $s['url'] . ' from related supporting content.',
                 'confidence_score' => 1.0,
                 'category'         => 'strategy',
-                'declared_role'    => 'priority',
+                'declared_buckets' => $buckets,
                 'actual_metrics'   => array( 'incoming_link_count' => $s['incoming_link_count'] ),
             );
         }
 
-        // ----- 4. Declared primary conversion page has no inbound from money.
+        // ----- 4. Declared primary conversion page has no inbound from a strategic target.
         if ( in_array( 'primary_conversion_pages', $buckets, true ) ) {
-            $has_money_inbound = false;
-            $inbound_classes   = $s['inbound_classifications'];
-            // inbound_classifications is a freq map (e.g. {"money":3,"article":1}).
-            if ( isset( $inbound_classes['money'] ) && (int) $inbound_classes['money'] > 0 ) {
-                $has_money_inbound = true;
+            $has_inbound = false;
+            $inbound_classes = $s['inbound_classifications'];
+            foreach ( array( 'money', 'service', 'product', 'category' ) as $cls ) {
+                if ( isset( $inbound_classes[ $cls ] ) && (int) $inbound_classes[ $cls ] > 0 ) { $has_inbound = true; break; }
             }
-            if ( ! $has_money_inbound ) {
+            if ( ! $has_inbound ) {
                 $items[] = array(
                     'priority'         => 'high',
-                    'issue'            => 'Primary conversion page receives no link from any money page',
+                    'issue'            => 'Primary conversion page is not linked to from any strategic target',
                     'affected_pages'   => array( $s['url'] ),
-                    'recommendation'   => 'Add a clear in-content CTA link from each money page directly to ' . $s['url'] . '.',
+                    'recommendation'   => 'Add a clear in-content call-to-action link from each strategic target page directly to ' . $s['url'] . '.',
                     'confidence_score' => 1.0,
                     'category'         => 'strategy',
-                    'declared_role'    => 'primary_conversion',
+                    'declared_buckets' => $buckets,
                 );
             }
         }
 
-        // ----- 5. Role conflict: declared support but classified as money.
+        // ----- 5. Role conflict: declared support page behaves like a strategic target.
         if ( in_array( 'support_pages', $buckets, true ) && in_array( $s['strategic_type'], array( 'money', 'service' ), true ) ) {
             $items[] = array(
                 'priority'         => 'medium',
-                'issue'            => 'Declared support page is behaving like a money page',
+                'issue'            => 'Declared support page is behaving like a strategic target',
                 'affected_pages'   => array( $s['url'] ),
-                'recommendation'   => 'Reduce conversion-style copy on ' . $s['url']
-                                    . ' or reclassify it — its current signals match a service/money page, not a support article.',
+                'recommendation'   => 'Tone down the conversion-style copy on ' . $s['url']
+                                    . ' or move it to the strategic-target list. Right now its signals match a service / money page, not a support article.',
                 'confidence_score' => 0.9,
                 'category'         => 'strategy',
-                'declared_role'    => 'support',
+                'declared_buckets' => $buckets,
                 'detected_role'    => $s['strategic_type'],
             );
         }
 
-        // ----- 6. Role conflict: declared location but heuristic says otherwise.
-        if ( in_array( 'location_pages', $buckets, true ) && 'location' !== $s['strategic_type'] && '' !== $s['strategic_type'] ) {
+        // ----- 6. Role conflict: declared geo/location target isn't detected as location.
+        if ( in_array( 'geo_location_targets', $buckets, true ) && 'location' !== $s['strategic_type'] && '' !== $s['strategic_type'] ) {
             $items[] = array(
                 'priority'         => 'low',
-                'issue'            => 'Declared location page is not detected as location by URL / schema signals',
+                'issue'            => 'Declared location page is not detected as a location by URL / schema signals',
                 'affected_pages'   => array( $s['url'] ),
                 'recommendation'   => 'Add a clear locality signal to ' . $s['url']
-                                    . ' (LocalBusiness schema, town in H1, NAP block) so search engines treat it as a local landing page.',
+                                    . ' (LocalBusiness schema, town name in the H1, full NAP block) so search engines treat it as a local landing page.',
                 'confidence_score' => 0.8,
                 'category'         => 'strategy',
-                'declared_role'    => 'location',
+                'declared_buckets' => $buckets,
                 'detected_role'    => $s['strategic_type'],
             );
         }
@@ -348,7 +413,7 @@ function tse_strategy_build_mismatch( $strategy, $records, $relationships, $auth
                             'recommendation'   => 'Rewrite the meta title of the OTHER pages in this duplicate set — leave ' . $s['url'] . ' untouched (protected).',
                             'confidence_score' => 1.0,
                             'category'         => 'strategy',
-                            'declared_role'    => 'protected',
+                            'declared_buckets' => $buckets,
                         );
                         break 2;
                     }

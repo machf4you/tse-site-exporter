@@ -131,6 +131,10 @@ function tse_ai_summary_build( $records, $relationships, $authority, $postproces
             'classification'              => isset( $r['classification'] ) ? (string) $r['classification'] : '',
             'strategic_type'              => isset( $auth['strategic_type'] ) ? $auth['strategic_type'] : 'other',
             'strategic_confidence'        => isset( $auth['strategic_confidence'] ) ? $auth['strategic_confidence'] : 0,
+            // V2.10 — page intent + indexability + sitemap awareness.
+            'intent'                      => isset( $r['intent'] ) ? (string) $r['intent'] : 'seo',
+            'indexability'                => isset( $r['indexability'] ) ? (string) $r['indexability'] : 'unknown',
+            'excluded_from_sitemap'       => array_key_exists( 'excluded_from_sitemap', $r ) ? $r['excluded_from_sitemap'] : null,
             'h1'                          => $h1,
             'h2'                          => array_values( $h2_list ),
             'h3_count'                    => $h3_count,

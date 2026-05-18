@@ -179,6 +179,37 @@ table.tse td a:hover { text-decoration: underline; }
 .link-card .field .val.reason { color:#374151; }
 .strategy-note { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; padding:10px 14px; border-radius:8px; font-size:13px; margin:12px 0; }
 .strategy-note strong { font-weight:600; }
+.track { background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:18px 20px; margin:16px 0 24px; }
+.track h3 { margin:0 0 6px; font-size:15px; font-weight:600; letter-spacing:-0.005em; }
+.track .subtitle { margin:0 0 12px; font-size:13px; color:#6b7280; }
+.track .track-label { display:inline-block; font-size:11px; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; padding:3px 10px; border-radius:999px; margin-right:10px; vertical-align:middle; }
+.track .track-label.content { background:#dbeafe; color:#1e3a8a; }
+.track .track-label.dev     { background:#ede9fe; color:#5b21b6; }
+.iss { border-top:1px solid #f3f4f6; padding:14px 0; display:grid; grid-template-columns:90px 1fr 180px; gap:10px 16px; }
+.iss:first-of-type { border-top:0; padding-top:6px; }
+.iss .meta { display:flex; flex-direction:column; gap:6px; align-items:flex-start; }
+.iss .body .title { font-weight:600; font-size:14px; color:#111827; margin:0 0 4px; }
+.iss .body .rec   { font-size:13px; color:#374151; margin:4px 0; }
+.iss .body .guide { font-size:12px; color:#6b7280; margin:4px 0 2px; font-style:italic; }
+.iss .body .pages { font-size:12px; margin:6px 0 0; }
+.iss .side { font-size:12px; color:#6b7280; display:flex; flex-direction:column; gap:4px; }
+.iss .side .group-pill { background:#f3f4f6; color:#374151; padding:2px 8px; border-radius:999px; font-weight:500; display:inline-block; align-self:flex-start; }
+details.metric-card { background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:0; margin:0; }
+details.metric-card > summary { list-style:none; cursor:pointer; padding:14px 16px; display:flex; flex-direction:column; gap:4px; }
+details.metric-card > summary::-webkit-details-marker { display:none; }
+details.metric-card > summary .lbl { font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#6b7280; font-weight:600; }
+details.metric-card > summary .num { font-size:26px; font-weight:600; color:#111827; font-variant-numeric:tabular-nums; line-height:1; margin-top:2px; }
+details.metric-card > summary .sub { font-size:12px; color:#6b7280; }
+details.metric-card[open] > summary .num { color:#1d4ed8; }
+details.metric-card.h > summary .num { color:#b91c1c; }
+details.metric-card.m > summary .num { color:#b45309; }
+details.metric-card.l > summary .num { color:#166534; }
+details.metric-card > .body { padding:0 16px 14px; border-top:1px solid #f3f4f6; }
+details.metric-card > .body .pl { padding-top:10px; font-size:13px; color:#374151; }
+details.metric-card > .body .pl ul { margin:6px 0 0; padding-left:18px; }
+details.metric-card > .body .pl li { margin:4px 0; line-height:1.4; }
+details.metric-card > .body .pl li code { background:#f3f4f6; padding:1px 6px; border-radius:4px; font-size:12px; }
+details.metric-card > summary:hover { background:#f9fafb; }
 footer.tse-f { color: #6b7280; font-size: 12px; text-align: center; margin: 32px 0 24px; }
 .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 12px 0 8px; }
 .metrics .m { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 14px; }
@@ -695,6 +726,144 @@ function tse_ai_report_quick_wins( $links, $context, $page_index ) {
 }
 
 /* -------------------------------------------------------------------------
+ * V2.10 — Unified issue track renderer + clickable summary cards
+ * ---------------------------------------------------------------------- */
+
+function tse_ai_report_issue_row( $iss, $page_index ) {
+    $sev_class = in_array( $iss['severity'], array( 'high', 'medium', 'low' ), true ) ? $iss['severity'] : 'low';
+    $h = '<div class="iss">';
+    $h .= '<div class="meta">'
+        . tse_ai_report_badge( strtoupper( $sev_class ), $sev_class )
+        . tse_ai_report_confidence_badge( $iss['confidence'] )
+        . '</div>';
+    $h .= '<div class="body">';
+    $h .= '<p class="title">' . htmlspecialchars( $iss['issue'] ?: ( $iss['recommendation'] ?: '—' ), ENT_QUOTES, 'UTF-8' ) . '</p>';
+    if ( ! empty( $iss['recommendation'] ) ) {
+        $h .= '<p class="rec">' . htmlspecialchars( $iss['recommendation'], ENT_QUOTES, 'UTF-8' ) . '</p>';
+    }
+    if ( ! empty( $iss['implementation_guidance'] ) ) {
+        $h .= '<p class="guide">How to action: ' . htmlspecialchars( $iss['implementation_guidance'], ENT_QUOTES, 'UTF-8' ) . '</p>';
+    }
+    if ( ! empty( $iss['affected_pages'] ) ) {
+        $h .= '<div class="pages">' . tse_ai_report_pages_cell( $iss['affected_pages'], $page_index ) . '</div>';
+    }
+    $h .= '</div>';
+    $h .= '<div class="side">'
+        . '<span class="group-pill">' . htmlspecialchars( $iss['group'], ENT_QUOTES, 'UTF-8' ) . '</span>'
+        . '<span>Action: ' . ( 'developer_technical' === $iss['action_type'] ? 'Developer / Technical' : 'Content / Admin' ) . '</span>'
+        . ( ! empty( $iss['intent_filter'] ) ? '<span>Intent: ' . htmlspecialchars( implode( ', ', $iss['intent_filter'] ), ENT_QUOTES, 'UTF-8' ) . '</span>' : '' )
+        . '</div>';
+    return $h . '</div>';
+}
+
+function tse_ai_report_unified_tracks( $issues, $page_index ) {
+    if ( empty( $issues ) ) return '';
+    $split   = tse_issues_split_tracks( $issues );
+    $content = $split['content_admin'];
+    $dev     = $split['developer_technical'];
+
+    $render_track = function( $title, $items, $class, $description ) use ( $page_index ) {
+        $h  = '<div class="track">';
+        $h .= '<h3><span class="track-label ' . $class . '">' . ( 'content' === $class ? 'CONTENT / ADMIN' : 'DEVELOPER / TECHNICAL' ) . '</span>'
+            . htmlspecialchars( $title, ENT_QUOTES, 'UTF-8' ) . ' <span style="color:#6b7280;font-weight:500;font-size:13px">(' . count( $items ) . ')</span></h3>';
+        $h .= '<p class="subtitle">' . htmlspecialchars( $description, ENT_QUOTES, 'UTF-8' ) . '</p>';
+        if ( empty( $items ) ) {
+            $h .= '<div class="empty">Nothing in this track.</div>';
+        } else {
+            // Sub-group by issue group so the layout mirrors the unified taxonomy.
+            $by_group = array();
+            foreach ( $items as $i ) $by_group[ $i['group'] ][] = $i;
+            $order = array( 'Strategy', 'Linking', 'Metadata', 'Cannibalisation', 'Thin Content', 'Architecture', 'Authority', 'Other' );
+            foreach ( $order as $g ) {
+                if ( empty( $by_group[ $g ] ) ) continue;
+                $h .= '<h3 class="subsection" style="margin-top:16px">' . htmlspecialchars( $g, ENT_QUOTES, 'UTF-8' )
+                    . '<span class="count">' . count( $by_group[ $g ] ) . '</span></h3>';
+                foreach ( $by_group[ $g ] as $iss ) {
+                    $h .= tse_ai_report_issue_row( $iss, $page_index );
+                }
+            }
+        }
+        return $h . '</div>';
+    };
+
+    $h  = tse_ai_report_section_heading( 'Actions to take', count( $issues ) );
+    $h .= tse_ai_report_why( 'A single deduplicated list, split by who can action each item. Items affecting non-SEO pages (legal / utility / conversion / template / noindex) have already been suppressed.' );
+    $h .= $render_track( 'Content / Admin track', $content, 'content', 'Tasks a content editor or marketing admin can complete without developer help.' );
+    $h .= $render_track( 'Developer / Technical track', $dev, 'dev', 'Tasks requiring schema / template / redirect / sitemap changes — coordinate with a developer.' );
+    return $h;
+}
+
+/* -------------------------------------------------------------------------
+ * Clickable summary card — replaces the V2.6 static exec-summary cards.
+ * Each card lists the affected URLs in a collapsible <details> body.
+ * ---------------------------------------------------------------------- */
+
+function tse_ai_report_clickable_metric( $label, $count, $tone, $sub, $url_list, $page_index ) {
+    $cls = in_array( $tone, array( 'h', 'm', 'l' ), true ) ? $tone : 'l';
+    $h  = '<details class="metric-card ' . $cls . '"' . ( $count > 0 ? ' open' : '' ) . '>';
+    $h .= '<summary>'
+        . '<span class="lbl">' . htmlspecialchars( $label, ENT_QUOTES, 'UTF-8' ) . '</span>'
+        . '<span class="num">' . (int) $count . '</span>'
+        . '<span class="sub">' . htmlspecialchars( $sub, ENT_QUOTES, 'UTF-8' ) . '</span>'
+        . '</summary>';
+    $h .= '<div class="body"><div class="pl">';
+    if ( $count <= 0 ) {
+        $h .= '<em style="color:#9ca3af">Nothing flagged in this bucket.</em>';
+    } elseif ( empty( $url_list ) ) {
+        $h .= '<em style="color:#9ca3af">Affected pages not surfaced — see the relevant issue track below.</em>';
+    } else {
+        $h .= '<div class="pages">' . tse_ai_report_pages_cell( $url_list, $page_index ) . '</div>';
+    }
+    $h .= '</div></div></details>';
+    return $h;
+}
+
+function tse_ai_report_executive_summary_v2( $issues, $context, $page_index ) {
+    $high = 0; $med = 0; $high_pages = array(); $med_pages = array();
+    foreach ( $issues as $i ) {
+        if ( 'high'   === $i['severity'] ) { $high++; foreach ( $i['affected_pages'] as $u ) $high_pages[ $u ] = true; }
+        if ( 'medium' === $i['severity'] ) { $med++;  foreach ( $i['affected_pages'] as $u ) $med_pages[ $u ]  = true; }
+    }
+
+    $near_orphans       = isset( $context['linking']['near_orphan_pages'] ) ? $context['linking']['near_orphan_pages'] : array();
+    $weak_money         = isset( $context['linking']['weak_money_pages'] )  ? $context['linking']['weak_money_pages']  : array();
+    $near_orphans_pages = array_filter( array_map( function( $p ) { return $p['url'] ?? ''; }, (array) $near_orphans ), 'strlen' );
+    $weak_money_pages   = array_filter( array_map( function( $p ) { return $p['url'] ?? ''; }, (array) $weak_money ),   'strlen' );
+
+    $cannibal_pages = array();
+    if ( ! empty( $context['linking']['duplicate_meta_titles'] ) ) {
+        foreach ( $context['linking']['duplicate_meta_titles'] as $d ) {
+            foreach ( (array) ( $d['urls'] ?? array() ) as $u ) $cannibal_pages[ $u ] = true;
+        }
+    }
+    $thin_pages = array();
+    if ( ! empty( $context['pages'] ) ) {
+        foreach ( $context['pages'] as $p ) {
+            $iss = $p['issues'] ?? array();
+            if ( is_array( $iss ) && in_array( 'thin_content', $iss, true ) ) $thin_pages[ $p['url'] ?? '' ] = true;
+        }
+    }
+
+    $cards = array(
+        array( 'High Priority Issues',  $high,                       'h', 'From the unified action list',  array_keys( $high_pages ) ),
+        array( 'Medium Priority Issues',$med,                        'm', 'From the unified action list',  array_keys( $med_pages ) ),
+        array( 'Near-Orphan Pages',     count( $near_orphans_pages ),'m', 'Pages with only 1 inbound link',array_values( $near_orphans_pages ) ),
+        array( 'Weak Strategic Targets',count( $weak_money_pages ),  'h', 'Declared / inferred targets that are under-supported', array_values( $weak_money_pages ) ),
+        array( 'Cannibalisation Risks', count( $cannibal_pages ),    'm', 'Duplicate / overlapping signals', array_keys( $cannibal_pages ) ),
+        array( 'Thin Content Signals',  count( $thin_pages ),        'l', 'Pages under 300 words',          array_keys( $thin_pages ) ),
+    );
+
+    $h  = tse_ai_report_section_heading( 'Executive summary', count( $cards ) );
+    $h .= tse_ai_report_why( 'Click any tile to expand the list of affected pages. Items already suppressed by intent / indexability are excluded.' );
+    $h .= '<div class="exec">';
+    foreach ( $cards as $c ) {
+        [ $label, $count, $tone, $sub, $list ] = $c;
+        $h .= tse_ai_report_clickable_metric( $label, $count, $tone, $sub, $list, $page_index );
+    }
+    return $h . '</div>';
+}
+
+/* -------------------------------------------------------------------------
  * Internal-link card renderer (V2.9.0 — implementation-style).
  * Each card reads like a Jira ticket: FROM / TO / Anchor / Reason.
  * ---------------------------------------------------------------------- */
@@ -726,8 +895,8 @@ function tse_ai_report_link_card( $it, $page_index ) {
     $h .= '<div>';
     $h .= '<p class="title">Add internal link</p>';
 
-    // FROM
-    $h .= '<div class="field"><div class="lbl">From</div><div class="val path">';
+    // FROM (now: EDIT THIS PAGE)
+    $h .= '<div class="field"><div class="lbl">Edit this page</div><div class="val path">';
     if ( $src ) {
         $title = $src_hit && ! empty( $src_hit['title'] ) ? ' <span style="color:#6b7280;font-size:12px;margin-left:6px">— ' . htmlspecialchars( $src_hit['title'], ENT_QUOTES, 'UTF-8' ) . '</span>' : '';
         $h .= '<a href="' . htmlspecialchars( $src, ENT_QUOTES, 'UTF-8' ) . '" target="_blank" rel="noopener">'
@@ -737,8 +906,8 @@ function tse_ai_report_link_card( $it, $page_index ) {
     }
     $h .= '</div></div>';
 
-    // TO
-    $h .= '<div class="field"><div class="lbl">To</div><div class="val path">';
+    // TO (now: ADD LINK TO)
+    $h .= '<div class="field"><div class="lbl">Add link to</div><div class="val path">';
     if ( $tgt ) {
         $title = $tgt_hit && ! empty( $tgt_hit['title'] ) ? ' <span style="color:#6b7280;font-size:12px;margin-left:6px">— ' . htmlspecialchars( $tgt_hit['title'], ENT_QUOTES, 'UTF-8' ) . '</span>' : '';
         $h .= '<a href="' . htmlspecialchars( $tgt, ENT_QUOTES, 'UTF-8' ) . '" target="_blank" rel="noopener">'
@@ -806,32 +975,30 @@ function tse_ai_report_main( $meta, $recs, $gaps, $links, $context, $page_index 
     $html  = tse_ai_report_header( 'AI Site Analysis Report', $meta );
     $html .= tse_ai_report_render_error( $recs );
 
+    // V2.10 — build unified issue list (suppress non-SEO, dedupe across prompts).
+    $lookup = function_exists( 'tse_issues_build_page_lookup' )
+        ? tse_issues_build_page_lookup( isset( $context['pages'] ) ? $context['pages'] : array() )
+        : array();
+    $strategy_items = isset( $context['strategy']['mismatch']['items'] )
+        ? (array) $context['strategy']['mismatch']['items']
+        : array();
+    $raw_by_source = array(
+        'recommendations' => isset( $recs['items'] ) ? $recs['items'] : array(),
+        'link_opps'       => isset( $links['items'] ) ? $links['items'] : array(),
+        'content_gaps'    => isset( $gaps['items'] )  ? $gaps['items']  : array(),
+        'strategy'        => $strategy_items,
+    );
+    $issues = function_exists( 'tse_issues_normalise' )
+        ? tse_issues_normalise( $raw_by_source, $lookup )
+        : array();
+
     $html .= tse_ai_report_export_metrics( $context, $links );
-    $html .= tse_ai_report_executive_summary( $recs, $gaps, $context );
+    $html .= tse_ai_report_executive_summary_v2( $issues, $context, $page_index );
     $html .= tse_ai_report_strategy_block( $context, $page_index );
-    $html .= tse_ai_report_priority_order_block( $recs, $gaps, $page_index );
+    $html .= tse_ai_report_unified_tracks( $issues, $page_index );
+
+    // Quick wins remain useful as a 3-card "what to ship this week" cap.
     $html .= tse_ai_report_quick_wins( $links, $context, $page_index );
-
-    // Grouped recommendations
-    $rec_items = isset( $recs['items'] ) ? $recs['items'] : array();
-    $html .= tse_ai_report_section_heading( 'Prioritised recommendations', count( $rec_items ) );
-    $html .= tse_ai_report_why( 'Grouped by type. Acting on high-priority items first preserves authority where it matters most.' );
-    if ( empty( $rec_items ) ) {
-        $html .= '<div class="empty">No recommendations were returned.</div>';
-    } else {
-        $html .= tse_ai_report_grouped_table( $rec_items, $page_index );
-    }
-
-    // Grouped content gaps
-    $html .= tse_ai_report_render_error( $gaps );
-    $gap_items = isset( $gaps['items'] ) ? $gaps['items'] : array();
-    $html .= tse_ai_report_section_heading( 'Content gap signals', count( $gap_items ) );
-    $html .= tse_ai_report_why( 'Closing topical gaps reduces cannibalisation and lifts under-supported strategic pages.' );
-    if ( empty( $gap_items ) ) {
-        $html .= '<div class="empty">No content gap signals were returned.</div>';
-    } else {
-        $html .= tse_ai_report_grouped_table( $gap_items, $page_index );
-    }
 
     return $html . tse_ai_report_footer();
 }

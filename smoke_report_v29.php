@@ -65,8 +65,8 @@ $html = tse_ai_report_links( $meta, $links_fixture, $page_index );
 
 check( 'card layout present (.link-card)',     false !== strpos( $html, 'link-card' ) );
 check( 'shows "Add internal link" title',      false !== strpos( $html, 'Add internal link' ) );
-check( 'shows From label',                     false !== strpos( $html, '>From<' ) );
-check( 'shows To label',                       false !== strpos( $html, '>To<' ) );
+check( 'shows Edit this page label',           false !== strpos( $html, '>Edit this page<' ) );
+check( 'shows Add link to label',              false !== strpos( $html, '>Add link to<' ) );
 check( 'shows Suggested anchor label',         false !== strpos( $html, '>Suggested anchor<' ) );
 check( 'shows Reason label',                   false !== strpos( $html, '>Reason<' ) );
 check( 'shows quoted anchor text',             false !== strpos( $html, '&quot;bathroom renovation services&quot;' ) );

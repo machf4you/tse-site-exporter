@@ -65,22 +65,22 @@ check( 'parser drops comment lines',  ! in_array( '# this is a comment', $parsed
 
 // 3. Save + get roundtrip
 tse_strategy_save( [
-    'money_pages'              => "/bathroom-renovations/\n/kitchen-fitting/",
+    'active_strategic_targets' => "/bathroom-renovations/\n/kitchen-fitting/",
     'support_pages'            => "/how-long-does-a-bathroom-renovation-take/",
-    'location_pages'           => "/bathroom-renovations-leeds/",
+    'geo_location_targets'     => "/bathroom-renovations-leeds/",
     'priority_urls'            => "/our-process/",
     'primary_conversion_pages' => "/get-a-quote/",
     'protected_urls'           => "/legacy-campaign/",
 ] );
 $saved = tse_strategy_get();
-check( 'roundtrip money 2 entries',    count( $saved['money_pages'] )              === 2 );
-check( 'roundtrip support 1 entry',    count( $saved['support_pages'] )            === 1 );
-check( 'roundtrip protected 1 entry',  count( $saved['protected_urls'] )           === 1 );
+check( 'roundtrip strategic targets 2 entries', count( $saved['active_strategic_targets'] ) === 2 );
+check( 'roundtrip support 1 entry',             count( $saved['support_pages'] )            === 1 );
+check( 'roundtrip protected 1 entry',           count( $saved['protected_urls'] )           === 1 );
 
 // 4. Build index
 $idx = tse_strategy_build_index( $saved );
-check( 'index has /bathroom-renovations/ → money', in_array( 'money_pages', $idx['/bathroom-renovations/'] ?? [], true ) );
-check( 'index has /get-a-quote/ → primary',        in_array( 'primary_conversion_pages', $idx['/get-a-quote/'] ?? [], true ) );
+check( 'index has /bathroom-renovations/ → active_strategic_targets', in_array( 'active_strategic_targets', $idx['/bathroom-renovations/'] ?? [], true ) );
+check( 'index has /get-a-quote/ → primary',                            in_array( 'primary_conversion_pages',     $idx['/get-a-quote/'] ?? [], true ) );
 
 // 5. Mismatch detection with a contrived fixture
 $records = [
@@ -155,30 +155,30 @@ function find_by( $items, $field, $val ) {
     return array_values( array_filter( $items, fn($i) => isset( $i[ $field ] ) && $i[ $field ] === $val ) );
 }
 
-// Expected findings
-$under_linked  = array_values( array_filter( $items, fn($i) => $i['issue'] === 'Declared money page is under-linked' ) );
-$below_median  = array_values( array_filter( $items, fn($i) => $i['issue'] === 'Declared money page sits below the site-wide median authority' ) );
+// Expected findings (V2.10 strings)
+$under_linked  = array_values( array_filter( $items, fn($i) => $i['issue'] === 'Declared strategic target is under-linked' ) );
+$below_median  = array_values( array_filter( $items, fn($i) => $i['issue'] === 'Declared strategic target sits below the site-wide median support level' ) );
 $priority_weak = array_values( array_filter( $items, fn($i) => $i['issue'] === 'Declared priority URL has limited internal support' ) );
-$pc_no_money   = array_values( array_filter( $items, fn($i) => $i['issue'] === 'Primary conversion page receives no link from any money page' ) );
-$support_role  = array_values( array_filter( $items, fn($i) => $i['issue'] === 'Declared support page is behaving like a money page' ) );
-$loc_role      = array_values( array_filter( $items, fn($i) => $i['issue'] === 'Declared location page is not detected as location by URL / schema signals' ) );
+$pc_no_inbound = array_values( array_filter( $items, fn($i) => $i['issue'] === 'Primary conversion page is not linked to from any strategic target' ) );
+$support_role  = array_values( array_filter( $items, fn($i) => $i['issue'] === 'Declared support page is behaving like a strategic target' ) );
+$loc_role      = array_values( array_filter( $items, fn($i) => $i['issue'] === 'Declared location page is not detected as a location by URL / schema signals' ) );
 $protected_dup = array_values( array_filter( $items, fn($i) => $i['issue'] === 'Protected URL shares its meta title with another page' ) );
 
-check( 'finds under-linked money page',          count( $under_linked )  === 1 );
-check( 'finds below-median money page',          count( $below_median )  >= 1 );
-check( 'finds priority URL with limited links',  count( $priority_weak ) === 1 );
-check( 'finds primary-conversion w/o money inbound', count( $pc_no_money ) === 1 );
-check( 'finds support→money role conflict',      count( $support_role )  === 1 );
-check( 'finds location role conflict',           count( $loc_role )      === 1 );
-check( 'finds protected URL meta dup',           count( $protected_dup ) === 1 );
+check( 'finds under-linked strategic target',     count( $under_linked )  === 1 );
+check( 'finds below-median strategic target',     count( $below_median )  >= 1 );
+check( 'finds priority URL with limited links',   count( $priority_weak ) === 1 );
+check( 'finds primary-conversion w/o inbound',    count( $pc_no_inbound ) === 1 );
+check( 'finds support→strategic role conflict',   count( $support_role )  === 1 );
+check( 'finds location role conflict',            count( $loc_role )      === 1 );
+check( 'finds protected URL meta dup',            count( $protected_dup ) === 1 );
 
-// Negatives — well-supported money page should NOT trigger under-linked.
-check( 'well-linked money page does NOT trigger under-linked',
+// Negatives — well-supported strategic target should NOT trigger under-linked.
+check( 'well-linked strategic target does NOT trigger under-linked',
     ! in_array( 'https://site.test/kitchen-fitting/', array_merge( ...array_column( $under_linked, 'affected_pages' ) ), true )
 );
 
 // Recommendation wording is plain English (no banned words)
-$banned = [ 'PageRank', 'link equity', 'passes strong', 'topical authority signals' ];
+$banned = [ 'PageRank', 'link equity', 'passes strong', 'topical authority signals', 'crawl prominence', 'internal equity' ];
 $any_banned = false;
 foreach ( $items as $it ) {
     foreach ( $banned as $b ) if ( false !== stripos( $it['recommendation'], $b ) ) { $any_banned = true; break 2; }
@@ -191,7 +191,7 @@ check( 'mismatch.totals.declared_resolved = 7',  $mismatch['totals']['declared_r
 check( 'mismatch.totals.mismatch_findings >= 7', $mismatch['totals']['mismatch_findings'] >= 7 );
 
 // 6. Unresolved declared URLs are reported.
-tse_strategy_save( [ 'money_pages' => "/does-not-exist/" ] );
+tse_strategy_save( [ 'active_strategic_targets' => "/does-not-exist/" ] );
 $mismatch_empty = tse_strategy_build_mismatch( tse_strategy_get(), $records, [], [], [] );
 check( 'unresolved declared URL is surfaced',
     in_array( '/does-not-exist/', $mismatch_empty['unresolved_declared_urls'], true )

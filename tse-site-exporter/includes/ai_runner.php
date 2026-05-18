@@ -69,20 +69,24 @@ function tse_ai_runner_recommendations( $provider, $inputs, $opts ) {
     $payload = array(
         'site_summary'    => $inputs['site'],
         'linking_summary' => $inputs['linking'],
+        'pages'           => isset( $inputs['pages'] ) ? $inputs['pages'] : array(),
         'strategy'        => isset( $inputs['strategy'] ) ? $inputs['strategy'] : null,
     );
-    $system = "You are a senior technical SEO consultant. The data has already been crunched — your job is to produce CLEAR, ACTIONABLE recommendations a junior marketer can execute today. "
+    $system = "You are a senior technical SEO consultant. The data has already been crunched — your job is to produce CLEAR, ACTIONABLE recommendations a content editor or business owner can execute today. "
             . "Return ONLY a JSON object matching this schema: "
-            . '{"items":[{"priority":"high|medium|low","issue":"<short, plain-English>","affected_pages":["url"],"recommendation":"<imperative action>","confidence_score":0.0_to_1.0,"category":"linking|authority|metadata|content|cluster|cannibalisation|strategy"}]}. '
+            . '{"items":[{"priority":"high|medium|low","issue":"<short, plain-English>","affected_pages":["url"],"recommendation":"<imperative action>","confidence_score":0.0_to_1.0,"category":"linking|authority|metadata|content|cluster|cannibalisation|strategy","action_type":"content_admin|developer_technical","implementation_guidance":"<one short paragraph telling the user exactly how to do it>"}]}. '
             . "WORDING RULES (strict): "
             . "(1) Start every `recommendation` with an imperative verb (Add, Rewrite, Remove, Merge, Redirect, Set, Replace). "
-            . "(2) Plain English only. BANNED terms: 'authority', 'link juice', 'link equity', 'pass strong', 'topical relevance signals', 'PageRank', 'siloing'. "
-            . "(3) `issue` must describe WHAT is wrong in one short sentence (no jargon). The WHY belongs in `recommendation` as an optional trailing clause beginning with 'so that' / 'because'. "
-            . "(4) For Elementor warnings, write what to change in the template, not 'global template'. "
-            . "(5) For duplicate metadata, name the conflicting pages and tell the user which to rewrite. "
-            . "(6) For orphan pages, suggest a specific source page to link from. "
-            . "(7) For cannibalisation, recommend one of: 'Merge', 'Redirect via 301', or 'Differentiate the intent of'. "
-            . "(8) If the input includes a `strategy.items` block, treat those declared-vs-actual gaps as priority context and reflect them in your output where relevant. "
+            . "(2) Plain English only. BANNED terms: 'authority', 'link juice', 'link equity', 'pass strong', 'passes authority', 'topical relevance signals', 'crawl prominence', 'internal equity', 'PageRank', 'siloing'. "
+            . "(3) `issue` describes WHAT is wrong in one short sentence (no jargon). The WHY belongs in `recommendation` as a trailing 'so that…' / 'because…' clause. "
+            . "(4) `action_type='content_admin'` for tasks a non-technical admin can do (edit a page, rewrite a meta field, change an anchor). `action_type='developer_technical'` for schema, robots, sitemap, template, redirect, theme / Elementor template changes. "
+            . "(5) `implementation_guidance` is 1-2 sentences explaining HOW to execute the change (which screen / metabox / file). "
+            . "(6) IGNORE pages whose `intent` is one of: utility, legal, conversion, template, gallery. Also IGNORE pages with `indexability='noindex'` or `excluded_from_sitemap=true`. These are not SEO-target pages. "
+            . "(7) For Elementor template warnings, write what to change in the template — not 'global template'. "
+            . "(8) For duplicate metadata, name the conflicting pages and tell the user which to rewrite. "
+            . "(9) For orphan pages, suggest a specific source page to link from. "
+            . "(10) For cannibalisation, recommend one of: 'Merge', 'Redirect via 301', or 'Differentiate the intent of'. "
+            . "(11) If the input includes a `strategy.items` block, treat those declared-vs-actual gaps as priority context and reflect them in your output where relevant. Protected URLs MUST NOT be recommended for redirect / merge / noindex. "
             . "Hard rules: max " . (int) $opts['max_items'] . " items; one issue per item; "
             . "affected_pages must come from the provided data only (do not invent URLs); no prose outside the JSON, no markdown.";
     $resp = $provider->complete( $system, $payload, $opts );
@@ -108,6 +112,9 @@ function tse_ai_runner_link_opportunities( $provider, $inputs, $opts ) {
                 'url'                     => $p['url'],
                 'title'                   => $p['title'],
                 'strategic_type'          => $p['strategic_type'],
+                'intent'                  => $p['intent'] ?? 'seo',
+                'indexability'            => $p['indexability'] ?? 'unknown',
+                'excluded_from_sitemap'   => $p['excluded_from_sitemap'] ?? null,
                 'internal_authority_score'=> $p['internal_authority_score'],
                 'incoming_link_count'     => $p['incoming_link_count'],
                 'outgoing_link_count'     => $p['outgoing_link_count'],
@@ -126,16 +133,18 @@ function tse_ai_runner_link_opportunities( $provider, $inputs, $opts ) {
         'strategy'                   => isset( $inputs['strategy'] ) ? $inputs['strategy'] : null,
     );
 
-    $system = "You are an internal-linking specialist writing implementation-ready link instructions. "
+    $system = "You are an internal-linking specialist writing implementation-ready link instructions for a content editor (NOT a developer). "
             . "Each item must read like a Jira ticket, not an SEO essay. "
             . "Return ONLY a JSON object matching: "
-            . '{"items":[{"priority":"high|medium|low","issue":"<short>","affected_pages":["<source_url>","<target_url>"],"recommendation":"<imperative action>","confidence_score":0.0_to_1.0,"source_url":"...","target_url":"...","suggested_anchor":"<descriptive 2-5 word anchor>","reason":"<one-sentence plain-English why>"}]}. '
+            . '{"items":[{"priority":"high|medium|low","issue":"<short>","affected_pages":["<source_url>","<target_url>"],"recommendation":"<imperative action>","confidence_score":0.0_to_1.0,"source_url":"...","target_url":"...","suggested_anchor":"<descriptive 2-5 word anchor>","reason":"<one-sentence plain-English why>","action_type":"content_admin","implementation_guidance":"<one short paragraph telling the user exactly how to add the link>"}]}. '
             . "WORDING RULES (strict): "
-            . "(1) `recommendation` starts with 'Add an internal link from <source path> to <target path> using anchor \"<anchor>\".'. No jargon. "
+            . "(1) `recommendation` reads exactly: 'Edit <source path> and add an internal link to <target path> using anchor \"<anchor>\".' — nothing else. "
             . "(2) `suggested_anchor` must be 2-5 words, descriptive, derived from the target page title. Reject 'click here', 'read more', 'learn more', 'this page'. "
-            . "(3) `reason` is ONE sentence in plain English explaining the user benefit — e.g. 'this page covers the exact question someone reading the source is likely to ask next'. "
-            . "Do NOT write 'passes authority', 'link equity', 'PageRank', 'topical relevance signals'. "
-            . "(4) If the input includes a declared strategy (`strategy.buckets.money_pages` etc), prioritise lifts towards those declared targets first. "
+            . "(3) `reason` is ONE sentence explaining the user-facing benefit — e.g. 'this page covers the exact question someone reading the source is likely to ask next'. "
+            . "BANNED phrases: 'passes authority', 'link equity', 'PageRank', 'topical authority signals', 'crawl prominence', 'internal equity'. "
+            . "(4) `implementation_guidance` should tell the user exactly which paragraph / section of the source page is the natural fit, and remind them to use 'Open in new tab=No' for internal links. "
+            . "(5) NEVER recommend a link whose source OR target has `intent` ∈ (utility, legal, conversion, template, gallery), `indexability='noindex'`, or `excluded_from_sitemap=true`. Skip such candidates entirely. "
+            . "(6) If the input includes a declared strategy (`strategy.buckets.active_strategic_targets`, `current_seo_targets`, `growth_targets`, `campaign_pages`, `geo_location_targets`), prioritise lifts towards those declared targets first. "
             . "Hard rules: max " . (int) $opts['max_items'] . " items; only use URLs present in the input; "
             . "no prose outside the JSON, no markdown.";
     $resp = $provider->complete( $system, $payload, $opts );
@@ -177,6 +186,9 @@ function tse_ai_runner_content_gap( $provider, $inputs, $opts ) {
             'meta_title'       => isset( $p['meta_title'] ) ? $p['meta_title'] : '',
             'meta_description' => isset( $p['meta_description'] ) ? $p['meta_description'] : '',
             'strategic_type'   => isset( $p['strategic_type'] ) ? $p['strategic_type'] : 'other',
+            'intent'           => $p['intent'] ?? 'seo',
+            'indexability'     => $p['indexability'] ?? 'unknown',
+            'excluded_from_sitemap' => $p['excluded_from_sitemap'] ?? null,
             'classification'   => isset( $p['classification'] ) ? $p['classification'] : '',
             'h1'               => isset( $p['h1'] ) ? $p['h1'] : '',
             'h2'               => isset( $p['h2'] ) ? $p['h2'] : array(),

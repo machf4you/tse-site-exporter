@@ -1,39 +1,58 @@
-# TSE Site Exporter — V2.9
+# TSE Site Exporter — V2.10
 
-A WordPress plugin that exports **AI-ready structured website intelligence** as a single downloadable ZIP of JSON files. Not a raw WordPress dump — every page is reduced to a canonical record covering SEO, content hierarchy, FAQs, links (with cross-references), media, CRO signals, schema, and interpreted Elementor structure. Includes a site-wide hierarchy, anchor-text frequency, orphan detection, an internal-link relationship graph with per-page metrics, a Weighted Internal Linking Engine, compact AI-analysis-ready summary files, **(V2.5) an AI Analysis Execution Layer that calls OpenAI / Anthropic / Gemini directly from PHP using user-supplied keys**, **(V2.8) a lightweight operational dashboard with run history, organised report panels and an in-admin iframe viewer**, and **(V2.9) a Strategic SEO Configuration layer plus implementation-style recommendation wording**.
+A WordPress plugin that exports **AI-ready structured website intelligence** as a single downloadable ZIP of JSON files, with a built-in operational dashboard, optional AI-powered analysis, and now (V2.10) **intent-aware**, **indexability-aware**, **strategy-aware** recommendation engine that splits actions into a *Content / Admin* track and a *Developer / Technical* track.
 
-## Strategic SEO Configuration (V2.9)
+## What's new in V2.10
 
-Optional admin section under **Tools → TSE Site Exporter → Strategic SEO Configuration**. Declare your business intent across six buckets — one URL or path per line:
+### Intent + indexability + sitemap awareness
+Every PageRecord is tagged with three new dimensions:
 
-- Money Pages
-- Support Pages
-- Location Pages
-- Priority URLs
-- Primary Conversion Pages
-- Protected URLs *(never recommend changing / merging / noindexing)*
+- `intent` ∈ `seo | utility | legal | conversion | template | gallery` — heuristic from URL, post_type, template.
+- `indexability` ∈ `index | noindex | unknown` — Yoast + Rank Math postmeta, plus the live `<meta name="robots">` if live-fetch is enabled.
+- `excluded_from_sitemap` — true if absent from the site's `sitemap_index.xml` / `wp-sitemap.xml`, fetched once per export.
 
-The exporter writes two new bundle files:
+The recommendation engine uses these to **suppress** thin-content, duplicate-meta, and internal-link warnings against non-SEO pages (Thank-you, Privacy, Cart, Elementor library, etc.).
 
-- `strategy-config.json` — your declared buckets (traceability).
-- `strategy-mismatch.json` — deterministic declared-vs-actual findings such as *"declared money page receives only 2 internal links"* or *"primary conversion page has no inbound link from any money page"*.
+### Strategic target reframing (replaces "Money Pages")
+The 9 buckets are now time-bound and editable as priorities change:
 
-Both files feed the AI runner as additional context, and the main HTML report renders a dedicated **Strategy vs reality** section.
+- Active Strategic Targets *(replaces Money Pages)*
+- Current SEO Targets *(new)*
+- Growth Targets *(new)*
+- Campaign Pages *(new)*
+- Geo / Location Targets *(replaces Location Pages)*
+- Priority URLs · Primary Conversion Pages · Support Pages · Protected URLs
 
-## Implementation-style recommendations (V2.9)
+Legacy `money_pages` / `location_pages` are auto-migrated silently on first load. No user action required.
 
-System prompts and the internal-link report were rewritten to emit Jira-ticket-style instructions, not SEO essays. Every link suggestion is now rendered as a card:
+### Unified issue model + two-track action split
+A single normalised issue list drives the entire report:
+
+```
+{ id, group, severity, action_type, intent_filter, affected_pages,
+  recommendation, implementation_guidance, confidence, source }
+```
+
+Items emitted by multiple prompts are deduped (key: group + affected URLs). Each issue is tagged `content_admin` or `developer_technical`. The HTML report renders two clearly labelled tracks:
+
+- **Content / Admin track** — page-level copy / link / metadata edits.
+- **Developer / Technical track** — schema, robots, sitemap, redirects, templates.
+
+### Clearer link instructions
+Internal-link cards now read:
 
 ```
 Add internal link
-FROM:  /blog/bathroom-tips/
-TO:    /bathroom-renovations/
+Edit this page:  /blog/bathroom-tips/
+Add link to:     /bathroom-renovations/
 Suggested anchor: "bathroom renovation services"
-Reason: Readers of the tips article are the exact audience
-        considering booking a renovation.
+Reason: Readers of the tips article are the exact audience considering a renovation.
 ```
 
-Banned jargon (`PageRank`, `link equity`, `passes strong authority`, `topical authority signals`) is forbidden at prompt level; the renderer fall back to the structured `source_url` / `target_url` / `suggested_anchor` / `reason` fields when the LLM is concise.
+Banned jargon extended: `passes authority`, `crawl prominence`, `internal equity`, `link equity`, `PageRank`, `topical authority signals`, `siloing`.
+
+### Clickable summary metrics
+The Executive Summary cards become collapsible `<details>` panels — click any tile (High Priority Issues, Near-Orphan Pages, Weak Strategic Targets, Cannibalisation Risks, Thin Content Signals) to see the affected URL list inline. No JS framework — native HTML.
 
 ## Operational Dashboard (V2.8)
 
