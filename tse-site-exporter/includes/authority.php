@@ -269,6 +269,7 @@ function tse_authority_build( $records, $url_index, $relationships ) {
             'article'  => 'Blog posts, news, articles.',
             'service'  => 'Service offering pages.',
             'location' => 'Location / area-served pages.',
+        'conversion' => 'Conversion endpoints (contact / quote / checkout) — CTA destinations, not SEO authority targets.',
             'product'  => 'WooCommerce or similar product pages.',
             'category' => 'Product / post categories / archive pages.',
             'homepage' => 'Site front page.',
@@ -338,6 +339,22 @@ function tse_authority_classify_strategic( $r, $per_page_rel ) {
         }
     }
 
+    // V2.10.2 — Hard override: URL is declared as a primary_conversion_page.
+    // Conversion endpoints (contact, quote, checkout) MUST NOT be classified
+    // as SEO authority targets — they are CTA destinations, not pages we try
+    // to rank.
+    if ( function_exists( 'tse_authority_strategy_conversion_lookup' ) ) {
+        $conv_set = tse_authority_strategy_conversion_lookup();
+        $norm     = tse_authority_normalise_path( $url );
+        if ( '' !== $norm && isset( $conv_set[ $norm ] ) ) {
+            return array(
+                'type'       => 'conversion',
+                'confidence' => 1.0,
+                'signals'    => array( 'strategy:declared_primary_conversion' ),
+            );
+        }
+    }
+
     // Homepage wins first.
     if ( 'homepage' === $classification ) {
         return array( 'type' => 'homepage', 'confidence' => 1.0, 'signals' => array( 'wp_front_page' ) );
@@ -360,14 +377,19 @@ function tse_authority_classify_strategic( $r, $per_page_rel ) {
     }
 
     // URL pattern signals.
+    // V2.10.2 — CTA / checkout endpoints split out of 'money' into 'conversion'
+    // so they are no longer treated as SEO authority targets. The few remaining
+    // 'money' patterns are commercial-INTENT pages (pricing / buy), which we
+    // DO still rank against.
     $patterns = array(
-        'money'    => array( '/pricing/', '/price/', '/quote/', '/contact/', '/book/', '/booking/', '/checkout/', '/cart/', '/buy/', '/get-started/', '/get-a-quote/', '/request-a-quote/', '/free-quote/', '/free-trial/', '/signup/', '/sign-up/', '/demo/' ),
-        'support'  => array( '/help/', '/faq/', '/faqs/', '/support/', '/docs/', '/documentation/', '/knowledge-base/', '/kb/', '/guides/' ),
-        'article'  => array( '/blog/', '/news/', '/articles/', '/insights/' ),
-        'service'  => array( '/services/', '/service/', '/what-we-do/' ),
-        'location' => array( '/locations/', '/location/', '/areas-served/', '/areas-we-serve/', '/service-area/', '/service-areas/', '/cities/', '/near-me/' ),
-        'category' => array( '/category/', '/categories/', '/tag/', '/archive/' ),
-        'product'  => array( '/product/', '/products/', '/shop/' ),
+        'conversion' => array( '/contact/', '/contact-us/', '/get-in-touch/', '/quote/', '/get-a-quote/', '/request-a-quote/', '/free-quote/', '/free-trial/', '/book/', '/booking/', '/book-a-call/', '/checkout/', '/cart/', '/get-started/', '/signup/', '/sign-up/', '/register/', '/demo/', '/request-demo/', '/schedule/' ),
+        'money'      => array( '/pricing/', '/price/', '/buy/', '/order/' ),
+        'support'    => array( '/help/', '/faq/', '/faqs/', '/support/', '/docs/', '/documentation/', '/knowledge-base/', '/kb/', '/guides/' ),
+        'article'    => array( '/blog/', '/news/', '/articles/', '/insights/' ),
+        'service'    => array( '/services/', '/service/', '/what-we-do/' ),
+        'location'   => array( '/locations/', '/location/', '/areas-served/', '/areas-we-serve/', '/service-area/', '/service-areas/', '/cities/', '/near-me/' ),
+        'category'   => array( '/category/', '/categories/', '/tag/', '/archive/' ),
+        'product'    => array( '/product/', '/products/', '/shop/' ),
     );
     foreach ( $patterns as $t => $needles ) {
         foreach ( $needles as $needle ) {
@@ -392,7 +414,7 @@ function tse_authority_classify_strategic( $r, $per_page_rel ) {
         }
     }
 
-    // CRO signals → reinforce or upgrade to money.
+    // CRO signals → reinforce or upgrade to money (BUT not from 'conversion').
     if ( ! empty( $r['cro'] ) && is_array( $r['cro'] ) ) {
         $cro         = $r['cro'];
         $cta_count   = isset( $cro['cta_count'] )   ? (int) $cro['cta_count']   : ( isset( $cro['ctas'] )   ? count( (array) $cro['ctas'] )   : 0 );
@@ -404,6 +426,9 @@ function tse_authority_classify_strategic( $r, $per_page_rel ) {
             if ( 'other' === $type ) {
                 $type = 'money';
                 $conf = 0.7;
+            } elseif ( 'conversion' === $type ) {
+                // V2.10.2 — keep type='conversion'; just boost confidence.
+                $conf = min( 1.0, $conf + 0.05 );
             } else {
                 $conf = min( 1.0, $conf + 0.05 );
             }
@@ -629,6 +654,27 @@ function tse_authority_strategy_location_lookup() {
     if ( ! function_exists( 'tse_strategy_get' ) ) return $cache;
     $st = tse_strategy_get();
     $list = isset( $st['geo_location_targets'] ) ? (array) $st['geo_location_targets'] : array();
+    foreach ( $list as $entry ) {
+        $n = function_exists( 'tse_strategy_normalise_url' )
+            ? tse_strategy_normalise_url( $entry )
+            : tse_authority_normalise_path( $entry );
+        if ( '' !== $n ) $cache[ $n ] = true;
+    }
+    return $cache;
+}
+
+/**
+ * V2.10.2 — Set of normalised paths declared by the user as Primary Conversion
+ * Pages. Used to hard-classify them as strategic_type='conversion' and to
+ * suppress authority-building recommendations against them.
+ */
+function tse_authority_strategy_conversion_lookup() {
+    static $cache = null;
+    if ( null !== $cache ) return $cache;
+    $cache = array();
+    if ( ! function_exists( 'tse_strategy_get' ) ) return $cache;
+    $st = tse_strategy_get();
+    $list = isset( $st['primary_conversion_pages'] ) ? (array) $st['primary_conversion_pages'] : array();
     foreach ( $list as $entry ) {
         $n = function_exists( 'tse_strategy_normalise_url' )
             ? tse_strategy_normalise_url( $entry )

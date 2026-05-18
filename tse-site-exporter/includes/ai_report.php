@@ -195,12 +195,16 @@ table.tse td a:hover { text-decoration: underline; }
 .iss .side { font-size:12px; color:#6b7280; display:flex; flex-direction:column; gap:4px; }
 .iss .side .group-pill { background:#f3f4f6; color:#374151; padding:2px 8px; border-radius:999px; font-weight:500; display:inline-block; align-self:flex-start; }
 details.metric-card { background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:0; margin:0; }
-details.metric-card > summary { list-style:none; cursor:pointer; padding:14px 16px; display:flex; flex-direction:column; gap:4px; }
+details.metric-card > summary { list-style:none; cursor:default; padding:14px 16px; display:flex; flex-direction:column; gap:4px; position:relative; }
 details.metric-card > summary::-webkit-details-marker { display:none; }
 details.metric-card > summary .lbl { font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#6b7280; font-weight:600; }
 details.metric-card > summary .num { font-size:26px; font-weight:600; color:#111827; font-variant-numeric:tabular-nums; line-height:1; margin-top:2px; }
 details.metric-card > summary .sub { font-size:12px; color:#6b7280; }
-details.metric-card[open] > summary .num { color:#1d4ed8; }
+details.metric-card > summary .view-pages { margin-top:10px; align-self:flex-start; display:inline-flex; align-items:center; gap:6px; cursor:pointer; padding:5px 12px; border-radius:6px; background:#f3f4f6; color:#374151; font-size:12px; font-weight:600; border:1px solid #e5e7eb; transition:background 0.12s, color 0.12s; }
+details.metric-card > summary .view-pages::after { content:"›"; font-size:14px; font-weight:700; transition:transform 0.18s; }
+details.metric-card[open] > summary .view-pages { background:#1f2937; color:#fff; border-color:#1f2937; }
+details.metric-card[open] > summary .view-pages::after { transform:rotate(90deg); }
+details.metric-card > summary .view-pages.empty { cursor:default; color:#9ca3af; background:#fafafa; }
 details.metric-card.h > summary .num { color:#b91c1c; }
 details.metric-card.m > summary .num { color:#b45309; }
 details.metric-card.l > summary .num { color:#166534; }
@@ -209,7 +213,6 @@ details.metric-card > .body .pl { padding-top:10px; font-size:13px; color:#37415
 details.metric-card > .body .pl ul { margin:6px 0 0; padding-left:18px; }
 details.metric-card > .body .pl li { margin:4px 0; line-height:1.4; }
 details.metric-card > .body .pl li code { background:#f3f4f6; padding:1px 6px; border-radius:4px; font-size:12px; }
-details.metric-card > summary:hover { background:#f9fafb; }
 footer.tse-f { color: #6b7280; font-size: 12px; text-align: center; margin: 32px 0 24px; }
 .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 12px 0 8px; }
 .metrics .m { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 14px; }
@@ -799,22 +802,26 @@ function tse_ai_report_unified_tracks( $issues, $page_index ) {
  * ---------------------------------------------------------------------- */
 
 function tse_ai_report_clickable_metric( $label, $count, $tone, $sub, $url_list, $page_index ) {
-    $cls = in_array( $tone, array( 'h', 'm', 'l' ), true ) ? $tone : 'l';
-    $h  = '<details class="metric-card ' . $cls . '"' . ( $count > 0 ? ' open' : '' ) . '>';
+    $cls       = in_array( $tone, array( 'h', 'm', 'l' ), true ) ? $tone : 'l';
+    $has_pages = $count > 0 && ! empty( $url_list );
+    $btn_class = $has_pages ? 'view-pages' : 'view-pages empty';
+    $btn_label = $has_pages ? __( 'View Pages', 'tse-site-exporter' ) : __( 'No pages', 'tse-site-exporter' );
+
+    $h  = '<details class="metric-card ' . $cls . '">'; // V2.10.2 — collapsed by default.
+    // Wrap the button in <summary> so the native disclosure toggle works
+    // without JS. Body only renders when the user explicitly clicks.
     $h .= '<summary>'
         . '<span class="lbl">' . htmlspecialchars( $label, ENT_QUOTES, 'UTF-8' ) . '</span>'
         . '<span class="num">' . (int) $count . '</span>'
         . '<span class="sub">' . htmlspecialchars( $sub, ENT_QUOTES, 'UTF-8' ) . '</span>'
+        . '<span class="' . $btn_class . '" role="button" aria-label="' . esc_attr( $btn_label ) . '">' . htmlspecialchars( $btn_label, ENT_QUOTES, 'UTF-8' ) . '</span>'
         . '</summary>';
-    $h .= '<div class="body"><div class="pl">';
-    if ( $count <= 0 ) {
-        $h .= '<em style="color:#9ca3af">Nothing flagged in this bucket.</em>';
-    } elseif ( empty( $url_list ) ) {
-        $h .= '<em style="color:#9ca3af">Affected pages not surfaced — see the relevant issue track below.</em>';
-    } else {
+    if ( $has_pages ) {
+        $h .= '<div class="body"><div class="pl">';
         $h .= '<div class="pages">' . tse_ai_report_pages_cell( $url_list, $page_index ) . '</div>';
+        $h .= '</div></div>';
     }
-    $h .= '</div></div></details>';
+    $h .= '</details>';
     return $h;
 }
 
@@ -854,7 +861,7 @@ function tse_ai_report_executive_summary_v2( $issues, $context, $page_index ) {
     );
 
     $h  = tse_ai_report_section_heading( 'Executive summary', count( $cards ) );
-    $h .= tse_ai_report_why( 'Click any tile to expand the list of affected pages. Items already suppressed by intent / indexability are excluded.' );
+    $h .= tse_ai_report_why( 'Top-level metrics only. Click "View Pages" on any tile to drill into the affected URLs.' );
     $h .= '<div class="exec">';
     foreach ( $cards as $c ) {
         [ $label, $count, $tone, $sub, $list ] = $c;
@@ -895,8 +902,8 @@ function tse_ai_report_link_card( $it, $page_index ) {
     $h .= '<div>';
     $h .= '<p class="title">Add internal link</p>';
 
-    // FROM (now: EDIT THIS PAGE)
-    $h .= '<div class="field"><div class="lbl">Edit this page</div><div class="val path">';
+    // FROM
+    $h .= '<div class="field"><div class="lbl">From</div><div class="val path">';
     if ( $src ) {
         $title = $src_hit && ! empty( $src_hit['title'] ) ? ' <span style="color:#6b7280;font-size:12px;margin-left:6px">— ' . htmlspecialchars( $src_hit['title'], ENT_QUOTES, 'UTF-8' ) . '</span>' : '';
         $h .= '<a href="' . htmlspecialchars( $src, ENT_QUOTES, 'UTF-8' ) . '" target="_blank" rel="noopener">'
@@ -906,8 +913,8 @@ function tse_ai_report_link_card( $it, $page_index ) {
     }
     $h .= '</div></div>';
 
-    // TO (now: ADD LINK TO)
-    $h .= '<div class="field"><div class="lbl">Add link to</div><div class="val path">';
+    // TO
+    $h .= '<div class="field"><div class="lbl">To</div><div class="val path">';
     if ( $tgt ) {
         $title = $tgt_hit && ! empty( $tgt_hit['title'] ) ? ' <span style="color:#6b7280;font-size:12px;margin-left:6px">— ' . htmlspecialchars( $tgt_hit['title'], ENT_QUOTES, 'UTF-8' ) . '</span>' : '';
         $h .= '<a href="' . htmlspecialchars( $tgt, ENT_QUOTES, 'UTF-8' ) . '" target="_blank" rel="noopener">'
@@ -918,7 +925,7 @@ function tse_ai_report_link_card( $it, $page_index ) {
     $h .= '</div></div>';
 
     // Anchor
-    $h .= '<div class="field"><div class="lbl">Suggested anchor</div><div class="val">';
+    $h .= '<div class="field"><div class="lbl">Use anchor text</div><div class="val">';
     if ( '' !== $anchor ) {
         $h .= '<span class="anchor">' . htmlspecialchars( '"' . $anchor . '"', ENT_QUOTES, 'UTF-8' ) . '</span>';
     } else {

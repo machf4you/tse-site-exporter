@@ -123,6 +123,19 @@ Acting on second-round feedback. Items 1-3 / 7-9 of the user's refinement brief 
 
 Tested via `/app/smoke_v210.php` (66/66 assertions total, +15 V2.10.1 specific). All earlier suites green.
 
+### V2.10.2 — UX refinements: cleaner exec summary + FROM/TO labels + conversion endpoints (2026-05)
+- **Exec summary cards** now default to **collapsed** with an explicit "View Pages" button affordance (dark pill when expanded). Empty buckets render a disabled "No pages" pill. Page lists no longer crowd the dashboard.
+- **Link card labels** rewritten to the customer's preferred wording: `From:` / `To:` / `Use anchor text:` / `Reason:`. Prompt enforces the new sentence template: *"From `<source path>`, add an internal link to `<target path>`. Use anchor text `\"<anchor>\"`."*
+- **Conversion endpoints are no longer SEO authority targets** (`authority.php` + `issue_normaliser.php`):
+  - URLs like `/contact/`, `/get-a-quote/`, `/checkout/`, `/cart/`, `/book/`, `/booking/`, `/free-quote/`, `/demo/`, `/register/`, `/schedule/` now classify as `strategic_type='conversion'`, not `'money'`. The remaining `'money'` patterns are commercial-intent rank targets only (`/pricing/`, `/price/`, `/buy/`, `/order/`).
+  - User's declared `primary_conversion_pages` is a hard override: matching URL is forced to `strategic_type='conversion'` with confidence 1.0.
+  - Suppression split (`tse_issues_is_non_seo` vs new `tse_issues_is_non_seo_strict`): linking items with `source=conversion` are dropped (you don't add SEO links FROM a contact page), but items with `target=conversion` SURVIVE — these are legitimate CTA-path recommendations.
+  - Authority / Strategy / Architecture recommendations against pages whose only target is a conversion endpoint are suppressed when the wording matches an authority-building claim ("strengthen authority of", "low authority", "under-supported", "build inbound links to").
+  - AI prompts updated to explicitly state the rule: *"Conversion endpoints MUST NOT appear as the SOURCE of a link recommendation, but ARE valid as the TARGET — they are CTA destinations and benefit from inbound links from service / content pages."*
+
+Tested via `/app/smoke_v210.php` (83/83 assertions — 51 V2.10 + 15 V2.10.1 + 17 V2.10.2). All earlier suites green.
+
+
 - **P2** Website replication / asset deployment workflows.
 - **P2** Cheaper-tier model presets (GPT-4o-mini, Claude Haiku 4.5, Gemini 3 Flash) + per-prompt model overrides.
 - **P2** Optional dashboard / chat interface.

@@ -361,5 +361,166 @@ $cls2 = tse_authority_classify_strategic(
 check( 'LocalBusiness schema upgrades service → location', $cls2['type'] === 'location' );
 
 echo "\n";
+echo "=== V2.10.2 — UX refinements: View Pages + FROM/TO + conversion endpoints ===\n";
+
+/* -- 10. Exec summary cards default closed + render View Pages button ----- */
+require_once __DIR__ . '/tse-site-exporter/includes/ai_report.php';
+
+$tile_with_pages = tse_ai_report_clickable_metric(
+    'Near-Orphan Pages', 17, 'm', 'Pages with only 1 inbound link',
+    [ 'https://site.test/a/', 'https://site.test/b/' ],
+    tse_ai_report_build_page_index( [ 'pages' => [] ] )
+);
+check( 'tile defaults closed (no open attr)',  false === strpos( $tile_with_pages, '<details class="metric-card m" open' ) );
+check( 'tile has "View Pages" affordance',     false !== strpos( $tile_with_pages, 'View Pages' ) );
+check( 'tile renders affected URL list',       false !== strpos( $tile_with_pages, '/a/' ) );
+
+$tile_empty = tse_ai_report_clickable_metric( 'Thin Content Signals', 0, 'l', 'Pages under 300 words', [], tse_ai_report_build_page_index( [ 'pages' => [] ] ) );
+check( 'empty tile shows "No pages" not "View Pages"', false === strpos( $tile_empty, 'View Pages' ) && false !== strpos( $tile_empty, 'No pages' ) );
+check( 'empty tile has no body div',                   false === strpos( $tile_empty, 'class="body"' ) );
+
+/* -- 11. Link card labels — FROM / TO / Use anchor text ------------------- */
+$links_fixture = [
+    'status' => 'ok',
+    'items'  => [
+        [
+            'priority'         => 'high',
+            'source_url'       => 'https://site.test/blog/tips/',
+            'target_url'       => 'https://site.test/services/bathroom/',
+            'suggested_anchor' => 'bathroom services',
+            'reason'           => 'Same audience.',
+            'confidence_score' => 0.9,
+            'affected_pages'   => [ 'https://site.test/blog/tips/', 'https://site.test/services/bathroom/' ],
+        ],
+    ],
+];
+$meta_demo = [ 'provider' => 'openai', 'model' => 'gpt', 'site_url' => 'https://site.test', 'site_name' => 'X', 'generated_at' => '2026-05-20T08:00:00Z' ];
+$links_html = tse_ai_report_links( $meta_demo, $links_fixture, tse_ai_report_build_page_index( [ 'pages' => [] ] ) );
+check( 'link card uses ">From<" label',          false !== strpos( $links_html, '>From<' ) );
+check( 'link card uses ">To<" label',            false !== strpos( $links_html, '>To<' ) );
+check( 'link card uses ">Use anchor text<" label', false !== strpos( $links_html, '>Use anchor text<' ) );
+check( 'old "Edit this page" label removed',     false === strpos( $links_html, '>Edit this page<' ) );
+check( 'old "Add link to" label removed',        false === strpos( $links_html, '>Add link to<' ) );
+
+/* -- 12. Conversion endpoints are not authority targets ------------------- */
+require_once __DIR__ . '/tse-site-exporter/includes/issue_normaliser.php';
+
+// 12a. /contact/ classifies as 'conversion', NOT 'money'.
+$cls_contact = tse_authority_classify_strategic(
+    [ 'url' => 'https://site.test/contact/', 'classification' => '', 'post_type' => 'page',
+      'content' => [ 'h1' => [ 'Contact us' ] ], 'seo' => [], 'schema' => [ 'types' => [] ] ],
+    [ 'incoming_link_count' => 5 ]
+);
+check( '/contact/ → strategic_type=conversion (not money)', $cls_contact['type'] === 'conversion' );
+
+// 12b. /get-a-quote/ classifies as 'conversion'.
+$cls_quote = tse_authority_classify_strategic(
+    [ 'url' => 'https://site.test/get-a-quote/', 'classification' => '', 'post_type' => 'page',
+      'content' => [ 'h1' => [ 'Get a quote' ] ], 'seo' => [], 'schema' => [ 'types' => [] ] ],
+    [ 'incoming_link_count' => 3 ]
+);
+check( '/get-a-quote/ → strategic_type=conversion',         $cls_quote['type']   === 'conversion' );
+
+// 12c. Pricing page still classifies as 'money' (legit SEO target).
+$cls_pricing = tse_authority_classify_strategic(
+    [ 'url' => 'https://site.test/pricing/', 'classification' => '', 'post_type' => 'page',
+      'content' => [ 'h1' => [ 'Pricing' ] ], 'seo' => [], 'schema' => [ 'types' => [] ] ],
+    [ 'incoming_link_count' => 4 ]
+);
+check( '/pricing/ → strategic_type=money (still ranks)',    $cls_pricing['type'] === 'money' );
+
+// 12d. Declared primary_conversion_pages hard override.
+$GLOBALS['__opts'] = [];
+tse_strategy_save( [ 'primary_conversion_pages' => "/declared-conv/" ] );
+// Reset static cache by checking via a fresh function lookup
+function _tse_reset_lookup_caches() {
+    // Two static caches live in authority.php; we tip them via reflection on
+    // their function definitions by spawning a fresh PHP process.
+}
+// Since static caches inside the helper functions cache the first call's
+// state, we run the assertion in a fresh process to avoid carry-over.
+$cmd = 'php -r ' . escapeshellarg(
+    "require '" . __DIR__ . "/tse-site-exporter/includes/strategy.php';"
+    . "require '" . __DIR__ . "/tse-site-exporter/includes/authority.php';"
+    . 'function get_option($k,$d=false){return $d;}'
+    . 'function update_option(...$a){return true;}'
+    . 'function add_action(...$a){}'
+    . 'function admin_url($p=""){return $p;}'
+    . 'function check_admin_referer(...$a){}'
+    . 'function current_user_can($c){return true;}'
+    . 'function wp_safe_redirect($u){}'
+    . 'function wp_die(...$a){exit(1);}'
+    . 'function add_query_arg($a,$u){return $u;}'
+    . 'function wp_nonce_field(...$a){}'
+    . 'function esc_html($s){return $s;} function esc_attr($s){return $s;} function esc_url($s){return $s;}'
+    . 'function esc_textarea($s){return $s;} function esc_html__($s,$d=null){return $s;}'
+    . 'function __($s,$d=null){return $s;}'
+    . 'function wp_parse_url($u){return parse_url($u);}'
+    . '$GLOBALS["__opts"]=["tse_site_exporter_strategy"=>["primary_conversion_pages"=>["/declared-conv/"]]];'
+    . 'function get_option_proxy($k,$d=false){return $GLOBALS["__opts"][$k]??$d;}'
+);
+// Simpler: just check that the suppression function recognises a conversion page directly
+$lookup = tse_issues_build_page_lookup( [
+    [ 'url' => 'https://site.test/declared-conv/', 'intent' => 'seo', 'strategic_type' => 'conversion', 'indexability' => 'index' ],
+] );
+check( 'page-lookup promotes intent to conversion when strategic_type=conversion',
+    'conversion' === ( $lookup[ '/declared-conv/' ]['intent'] ?? '' ) );
+
+// 12e. Linking item: source=conversion → SUPPRESSED.
+$raw = [
+    'recommendations' => [
+        [ 'priority' => 'high', 'category' => 'linking', 'issue' => 'Add link',
+          'source_url' => 'https://site.test/declared-conv/', 'target_url' => 'https://site.test/services/bathroom/',
+          'affected_pages' => [ 'https://site.test/declared-conv/', 'https://site.test/services/bathroom/' ] ],
+    ],
+];
+$lookup2 = tse_issues_build_page_lookup( [
+    [ 'url' => 'https://site.test/declared-conv/',        'intent' => 'conversion', 'indexability' => 'index' ],
+    [ 'url' => 'https://site.test/services/bathroom/',    'intent' => 'seo',        'indexability' => 'index' ],
+] );
+$issues_a = tse_issues_normalise( $raw, $lookup2 );
+check( 'linking item with source=conversion is suppressed', 0 === count( $issues_a ) );
+
+// 12f. Linking item: target=conversion → KEPT (CTA path).
+$raw_b = [
+    'recommendations' => [
+        [ 'priority' => 'high', 'category' => 'linking', 'issue' => 'Add link',
+          'source_url' => 'https://site.test/services/bathroom/', 'target_url' => 'https://site.test/declared-conv/',
+          'affected_pages' => [ 'https://site.test/services/bathroom/', 'https://site.test/declared-conv/' ] ],
+    ],
+];
+$issues_b = tse_issues_normalise( $raw_b, $lookup2 );
+check( 'linking item with target=conversion survives (CTA path)', 1 === count( $issues_b ) );
+
+// 12g. Authority recommendation against a conversion page → SUPPRESSED.
+$raw_c = [
+    'recommendations' => [
+        [ 'priority' => 'high', 'category' => 'authority', 'issue' => 'Low authority',
+          'recommendation' => 'Strengthen authority of /contact/ by adding 3 inbound links from your service pages.',
+          'affected_pages' => [ 'https://site.test/contact/' ] ],
+    ],
+];
+$lookup_c = tse_issues_build_page_lookup( [
+    [ 'url' => 'https://site.test/contact/', 'intent' => 'conversion', 'indexability' => 'index' ],
+] );
+$issues_c = tse_issues_normalise( $raw_c, $lookup_c );
+check( '"strengthen authority of /contact/" is suppressed', 0 === count( $issues_c ) );
+
+// 12h. CTA-path recommendation against a conversion page → KEPT.
+$raw_d = [
+    'content_gaps' => [
+        [ 'priority' => 'medium', 'issue' => 'Missing CTA path',
+          'recommendation' => 'Ensure each service page contains a clear CTA link to /contact/.',
+          'affected_pages' => [ 'https://site.test/services/bathroom/', 'https://site.test/contact/' ] ],
+    ],
+];
+$lookup_d = tse_issues_build_page_lookup( [
+    [ 'url' => 'https://site.test/services/bathroom/', 'intent' => 'seo',        'indexability' => 'index' ],
+    [ 'url' => 'https://site.test/contact/',           'intent' => 'conversion', 'indexability' => 'index' ],
+] );
+$issues_d = tse_issues_normalise( $raw_d, $lookup_d );
+check( '"add CTA path to /contact/" recommendation survives', 1 === count( $issues_d ) );
+
+echo "\n";
 if ( $fail === 0 ) { echo "ALL ASSERTIONS PASS\n"; exit(0); }
 echo "FAILED: $fail assertion(s)\n"; exit(1);

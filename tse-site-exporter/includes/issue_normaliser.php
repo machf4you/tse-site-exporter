@@ -47,13 +47,19 @@ function tse_issues_build_page_lookup( $pages ) {
         $url = isset( $p['url'] ) ? (string) $p['url'] : '';
         if ( '' === $url ) continue;
         $k = tse_issues_norm( $url );
-        $intent = $p['intent']
-            ?? ( $p['strategic_type'] ?? 'seo' );
+        // V2.10.2 — if the page-intent classifier said 'seo' but the
+        // strategic_type detector said 'conversion', promote intent to
+        // 'conversion' so suppression logic kicks in for /contact/, /get-a-quote/ etc.
+        $intent = $p['intent'] ?? 'seo';
+        $strategic = $p['strategic_type'] ?? '';
+        if ( 'seo' === $intent && 'conversion' === $strategic ) $intent = 'conversion';
+
         $index  = $p['indexability'] ?? 'unknown';
         $excl   = isset( $p['excluded_from_sitemap'] ) ? (bool) $p['excluded_from_sitemap'] : null;
         $out[ $k ] = array(
             'url'                   => $url,
             'intent'                => $intent,
+            'strategic_type'        => $strategic,
             'indexability'          => $index,
             'excluded_from_sitemap' => $excl,
         );
@@ -137,18 +143,38 @@ function tse_issues_action_type_for( $group, $item ) {
 function tse_issues_should_suppress( $group, $item, $lookup ) {
     $pages = (array) ( $item['affected_pages'] ?? array() );
 
-    // Linking items: drop if EITHER source or target is non-SEO / noindex /
-    // excluded from sitemap.
+    // Linking items: V2.10.2 split.
+    //   - Drop if SOURCE is non-SEO/noindex/excluded — you don't edit a
+    //     conversion / legal / utility / template / gallery page to add SEO
+    //     links out from it.
+    //   - Drop if TARGET is non-SEO **excluding 'conversion'** —
+    //     adding a link TO /contact/ from a service page is a legitimate
+    //     CTA-path recommendation and must survive.
     if ( 'Linking' === $group ) {
         $src = (string) ( $item['source_url'] ?? ( $pages[0] ?? '' ) );
         $tgt = (string) ( $item['target_url'] ?? ( $pages[1] ?? '' ) );
-        foreach ( array( $src, $tgt ) as $u ) {
-            if ( '' === $u ) continue;
-            $info = $lookup[ tse_issues_norm( $u ) ] ?? null;
-            if ( ! $info ) continue;
-            if ( tse_issues_is_non_seo( $info ) ) return true;
+        if ( '' !== $src ) {
+            $info = $lookup[ tse_issues_norm( $src ) ] ?? null;
+            if ( $info && tse_issues_is_non_seo( $info ) ) return true;
+        }
+        if ( '' !== $tgt ) {
+            $info = $lookup[ tse_issues_norm( $tgt ) ] ?? null;
+            if ( $info && tse_issues_is_non_seo_strict( $info ) ) return true;
         }
         return false;
+    }
+
+    // Strategy / Authority items that target a conversion endpoint are
+    // suppressed — we don't recommend "build authority for /contact/".
+    if ( in_array( $group, array( 'Authority', 'Strategy', 'Architecture' ), true ) ) {
+        $only_conversion = ! empty( $pages );
+        foreach ( $pages as $u ) {
+            $info = $lookup[ tse_issues_norm( $u ) ] ?? null;
+            if ( ! $info || 'conversion' !== ( $info['intent'] ?? '' ) ) {
+                $only_conversion = false; break;
+            }
+        }
+        if ( $only_conversion && tse_issues_is_authority_recommendation( $item ) ) return true;
     }
 
     // Metadata + Thin Content: drop only if ALL affected pages are non-SEO.
@@ -173,6 +199,41 @@ function tse_issues_is_non_seo( $info ) {
     if ( in_array( $intent, array( 'utility', 'legal', 'conversion', 'template', 'gallery' ), true ) ) return true;
     if ( 'noindex' === $idx ) return true;
     if ( true === $excl ) return true;
+    return false;
+}
+
+/**
+ * V2.10.2 — Strict variant used when checking the TARGET of a linking item.
+ *   Excludes 'conversion' from the suppression list so a service page → contact
+ *   page CTA recommendation survives.
+ */
+function tse_issues_is_non_seo_strict( $info ) {
+    $intent = (string) ( $info['intent'] ?? 'seo' );
+    $idx    = (string) ( $info['indexability'] ?? 'unknown' );
+    $excl   = $info['excluded_from_sitemap'] ?? null;
+    if ( in_array( $intent, array( 'utility', 'legal', 'template', 'gallery' ), true ) ) return true;
+    if ( 'noindex' === $idx ) return true;
+    if ( true === $excl ) return true;
+    return false;
+}
+
+/**
+ * V2.10.2 — Sniff a recommendation to decide if it is an authority-building /
+ * SEO-strengthening claim about a page (which we want to suppress when the page
+ * is a conversion endpoint). True for phrases like "strengthen authority of",
+ * "improve internal authority", "boost ranking", "add inbound links to".
+ */
+function tse_issues_is_authority_recommendation( $item ) {
+    $hay = strtolower( (string) ( ( $item['issue'] ?? '' ) . ' ' . ( $item['recommendation'] ?? '' ) ) );
+    $needles = array(
+        'strengthen authority', 'authority of',
+        'improve authority', 'boost authority',
+        'rank ', 'ranking',
+        'increase internal support',
+        'add inbound links to', 'build inbound links',
+        'low authority', 'under-supported', 'under supported',
+    );
+    foreach ( $needles as $n ) if ( false !== strpos( $hay, $n ) ) return true;
     return false;
 }
 
